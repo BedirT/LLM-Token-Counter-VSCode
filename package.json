@@ -1,0 +1,49 @@
+{
+  "name": "gpt-token-counter",
+  "displayName": "GPT Token Counter",
+  "description": "Counts tokens on a selected text",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.78.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gpt-token-counter.countTokens",
+        "title": "Count Tokens"
+      },
+
+      {
+        "command": "gpt-token-counter.changeModel",
+        "title": "Change Model"
+      }
+    ]
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "node ./test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/glob": "^8.1.0",
+    "@types/mocha": "^10.0.1",
+    "@types/node": "16.x",
+    "@types/vscode": "^1.78.0",
+    "@vscode/test-electron": "^2.3.0",
+    "eslint": "^8.39.0",
+    "glob": "^8.1.0",
+    "mocha": "^10.2.0",
+    "typescript": "^5.0.4"
+  },
+  "dependencies": {
+    "gpt-3-encoder": "^1.1.4",
+    "gpt-tokenizer": "^2.0.0"
+  }
+}
