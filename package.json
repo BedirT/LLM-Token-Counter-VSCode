@@ -1,31 +1,25 @@
 {
   "name": "gpt-token-counter",
   "displayName": "GPT Token Counter",
-  "description": "Counts tokens on a selected text",
-  "version": "0.0.1",
-  "engines": {
-    "vscode": "^1.78.0"
+  "description": "GPT Token Counter - Counts tokens on a selected text",
+  "version": "0.1.0",
+  "publisher": "bedirt",
+  "author": {
+    "name": "BedirT"
   },
-  "categories": [
-    "Other"
-  ],
+  "categories": ["Other"],
   "activationEvents": [
     "*"
   ],
-  "main": "./extension.js",
-  "contributes": {
-    "commands": [
-      {
-        "command": "gpt-token-counter.countTokens",
-        "title": "Count Tokens"
-      },
-
-      {
-        "command": "gpt-token-counter.changeModel",
-        "title": "Change Model"
-      }
-    ]
+  "icon": "images/icon.jpg",
+  "galleryBanner": {
+    "color": "#00c864",
+    "theme": "dark"
   },
+  "engines": {
+    "vscode": "^1.78.0"
+  },
+  "main": "./extension.js",
   "scripts": {
     "lint": "eslint .",
     "pretest": "npm run lint",
@@ -42,8 +36,30 @@
     "mocha": "^10.2.0",
     "typescript": "^5.0.4"
   },
+  "license": "SEE LICENSE IN LICENSE.txt",
+  "bugs": {
+    "url": "https://github.com/microsoft/vscode-wordcount/issues",
+    "email": "bedirtpkn@gmail.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BedirT/GPT-Token-Counter-VSCode"
+  },
   "dependencies": {
-    "gpt-3-encoder": "^1.1.4",
     "gpt-tokenizer": "^2.0.0"
-  }
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "gpt-token-counter.countTokens",
+        "title": "Count Tokens"
+      },
+
+      {
+        "command": "gpt-token-counter.changeModel",
+        "title": "Change Model"
+      }
+    ]
+  },
+  "homepage": "https://github.com/BedirT/GPT-Token-Counter-VSCode/blob/main/README.md"
 }
