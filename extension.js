@@ -6,7 +6,7 @@ let encode = require('gpt-tokenizer').encode;
  */
 function activate(context) {
     let statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBar.command = "gpt-token-counter.changeModel";
+    statusBar.command = "gpt-token-counter-live.changeModel";
 
     const availableModels = [
         // Add all your available models here
@@ -60,7 +60,7 @@ function activate(context) {
     vscode.window.onDidChangeTextEditorSelection(updateTokenCount, null, context.subscriptions);
     vscode.window.onDidChangeActiveTextEditor(updateTokenCount, null, context.subscriptions);
 
-    let disposable = vscode.commands.registerCommand('gpt-token-counter.changeModel', async function () {
+    let disposable = vscode.commands.registerCommand('gpt-token-counter-live.changeModel', async function () {
         let selection = await vscode.window.showQuickPick(availableModels, {
             placeHolder: 'Select a Model',
         });

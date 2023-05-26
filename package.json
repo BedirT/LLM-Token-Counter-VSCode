@@ -1,8 +1,8 @@
 {
-  "name": "gpt-token-counter",
-  "displayName": "GPT Token Counter",
-  "description": "GPT Token Counter - Counts tokens on a selected text",
-  "version": "0.1.0",
+  "name": "gpt-token-counter-live",
+  "displayName": "GPT Token Counter Live",
+  "description": "GPT Token Counter Live - Live Token Counter",
+  "version": "1.0.0",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"
@@ -51,12 +51,12 @@
   "contributes": {
     "commands": [
       {
-        "command": "gpt-token-counter.countTokens",
+        "command": "gpt-token-counter-live.countTokens",
         "title": "Count Tokens"
       },
 
       {
-        "command": "gpt-token-counter.changeModel",
+        "command": "gpt-token-counter-live.changeModel",
         "title": "Change Model"
       }
     ]

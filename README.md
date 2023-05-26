@@ -1,6 +1,6 @@
-# GPT-Token-Counter README
+# GPT-Token-Counter Live
 
-The "gpt-token-counter" is a Visual Studio Code extension that displays the token count of selected text or the entire open document in the status bar. The token count is determined using the [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) npm package.
+The "gpt-token-counter-live" is a Visual Studio Code extension that displays the token count of selected text or the entire open document in the status bar. The token count is determined using the [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) npm package.
 
 This tool is built to get a speedy token counting result right on VS Code while you are working on prompting files. I personally needed a lot while working on many GPT projects, so I decided to make one for myself. I hope this helps you too!
 
@@ -34,7 +34,7 @@ There are currently no known issues. If you encounter a problem, please report i
 
 ### 1.0.0
 
-- Initial release of gpt-token-counter.
+- Initial release of gpt-token-counter-live.
 - Provides a token count in the status bar for the selected text or the entire document.
 - Automatically updates the token count as text is edited or selected.
 - Allows the user to select the model to use for token counting.
