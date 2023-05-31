@@ -10,6 +10,8 @@ This tool is built to get a speedy token counting result right on VS Code while 
 
 - **Token Count Display:** The extension provides a real-time token count of the currently selected text or the entire document if no text is selected. The token count is displayed on the right side of the status bar.
 
+[![Token Count Display Video](images/count_display.mp4)](images/count_display.mp4)
+
 - **Auto-Update:** The token count is automatically updated as you edit or select text, ensuring that the count is always accurate.
 
 - **Easy Activation:** The extension is activated as soon as VS Code starts up, so you don't have to manually activate it every time you start your editor.
