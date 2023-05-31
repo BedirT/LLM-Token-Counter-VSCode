@@ -1,6 +1,6 @@
 # GPT-Token-Counter Live
 
-<a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live">![](https://img.shields.io/badge/VSCode-v0.1-blue?style=flat&logo=visualstudiocode)</a>
+<a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live">![](https://img.shields.io/badge/VSCode-v1.0-blue?style=flat&logo=visualstudiocode)</a>
 
 The "gpt-token-counter-live" is a Visual Studio Code extension that displays the token count of selected text or the entire open document in the status bar. The token count is determined using the [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) npm package.
 
