@@ -10,13 +10,15 @@ This tool is built to get a speedy token counting result right on VS Code while 
 
 - **Token Count Display:** The extension provides a real-time token count of the currently selected text or the entire document if no text is selected. The token count is displayed on the right side of the status bar.
 
-[![Token Count Display Video](images/count_display.mp4)](images/count_display.mp4)
+https://github.com/BedirT/GPT-Token-Counter-VSCode/assets/10860127/d250f139-b1b1-4398-b3d4-052b3fa105c9
 
 - **Auto-Update:** The token count is automatically updated as you edit or select text, ensuring that the count is always accurate.
 
 - **Easy Activation:** The extension is activated as soon as VS Code starts up, so you don't have to manually activate it every time you start your editor.
 
 - **Model Selection:** The extension allows you to select the model you want to use for token counting. The default model is the GPT-4 model, currently only implements openai models (pretty much all that is available right now). You can change the model by clicking on the token count in the status bar and selecting the model you want to use.
+
+https://github.com/BedirT/GPT-Token-Counter-VSCode/assets/10860127/5dffabb0-28c2-49cb-aeb2-4c8d2a62b047
 
 ## Requirements
 
