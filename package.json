@@ -1,13 +1,15 @@
 {
   "name": "gpt-token-counter-live",
-  "displayName": "GPT Token Counter Live",
-  "description": "GPT Token Counter Live - Live Token Counter",
-  "version": "1.0.0",
+  "displayName": "Live LLM Token Counter",
+  "description": "Live Token Counter for Language Models",
+  "version": "1.1.0",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [
     "*"
   ],
@@ -43,10 +45,11 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/BedirT/GPT-Token-Counter-VSCode"
+    "url": "https://github.com/BedirT/LLM-Token-Counter-VSCode"
   },
   "dependencies": {
-    "gpt-tokenizer": "^2.0.0"
+    "@anthropic-ai/tokenizer": "^0.0.4",
+    "gpt-tokenizer": "^2.1.1"
   },
   "contributes": {
     "commands": [
@@ -54,12 +57,11 @@
         "command": "gpt-token-counter-live.countTokens",
         "title": "Count Tokens"
       },
-
       {
         "command": "gpt-token-counter-live.changeModel",
         "title": "Change Model"
       }
     ]
   },
-  "homepage": "https://github.com/BedirT/GPT-Token-Counter-VSCode/blob/main/README.md"
+  "homepage": "https://github.com/BedirT/LLM-Token-Counter-VSCode/blob/main/README.md"
 }
