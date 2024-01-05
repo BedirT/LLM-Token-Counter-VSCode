@@ -12,7 +12,7 @@ function activate(context) {
 
     const modelProviders = {
         'openai': [
-            'gpt-4', 
+            'gpt-4',
             'gpt-3.5-turbo',
             'text-davinci-003',
             'davinci',
@@ -43,6 +43,17 @@ function activate(context) {
 
     context.subscriptions.push(statusBar);
 
+    // Function to handle special tokens
+    function handleSpecialTokens(text) {
+        const specialTokens = ['<|im_start|>'];
+        specialTokens.forEach(token => {
+            if (text.includes(token)) {
+                text = text.replace(token, '');
+            }
+        });
+        return text;
+    }
+
     let updateTokenCount = () => {
         let editor = vscode.window.activeTextEditor;
         if (!editor) {
@@ -54,14 +65,17 @@ function activate(context) {
         let selection = editor.selection;
         let text = selection.isEmpty ? document.getText() : document.getText(selection);
 
+        // Handle special tokens before tokenizing
+        text = handleSpecialTokens(text);
+
         let tokenCount;
-        
+
         if (currentProvider === 'anthropic') {
             tokenCount = countTokens(text);
         } else {
             tokenCount = encode(text).length;
         }
-        
+
         statusBar.text = `Token Count: ${tokenCount} (${currentModel})`;
         statusBar.show();
     };
