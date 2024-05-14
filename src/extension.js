@@ -12,7 +12,7 @@ function activate(context) {
     const modelProviders = {
         'openai': [
             'gpt-4o',
-            'gpt-4', // Turbo is also here
+            'gpt-4',
             'gpt-3.5-turbo',
             'text-davinci-003',
             'davinci',
@@ -24,18 +24,27 @@ function activate(context) {
         ]
     };
 
+    const specialTokens = {
+        'gpt-4o': ['<|endoftext|>'],
+        'gpt-4': ['<|im_start|>', '<|endoftext|>', '<|im_end|>'],
+        'gpt-3.5-turbo': ['<|im_start|>', '<|endoftext|>', '<|im_end|>'],
+        'text-davinci-003': ['<|endoftext|>'],
+        'davinci': ['<|endoftext|>'],
+        'babbage': ['<|endoftext|>'],
+        'claude-2': [],
+        'claude-3': [] // Approximate
+    };
+
     let currentModel = modelProviders.openai[0];
     let currentProvider = 'openai';
 
     context.subscriptions.push(statusBar);
 
     // Function to handle special tokens
-    function handleSpecialTokens(text) {
-        const specialTokens = [''];
-        specialTokens.forEach(token => {
-            if (text.includes(token)) {
-                text = text.replace(token, '');
-            }
+    function handleSpecialTokens(text, model) {
+        const tokens = specialTokens[model] || [];
+        tokens.forEach(token => {
+            text = text.split(token).join('');
         });
         return text;
     }
@@ -52,7 +61,7 @@ function activate(context) {
         let text = selection.isEmpty ? document.getText() : document.getText(selection);
 
         // Handle special tokens before tokenizing
-        text = handleSpecialTokens(text);
+        text = handleSpecialTokens(text, currentModel);
 
         let tokenCount;
 
@@ -68,6 +77,8 @@ function activate(context) {
 
     vscode.window.onDidChangeTextEditorSelection(updateTokenCount, null, context.subscriptions);
     vscode.window.onDidChangeActiveTextEditor(updateTokenCount, null, context.subscriptions);
+    vscode.workspace.onDidChangeTextDocument(updateTokenCount, null, context.subscriptions);
+    vscode.workspace.onDidChangeTextDocument(updateTokenCount, null, context.subscriptions);
 
     let disposable = vscode.commands.registerCommand('gpt-token-counter-live.changeModel', async function () {
         let flatModelList = Object.entries(modelProviders).reduce((acc, [provider, models]) => acc.concat(models.map(model => `${provider}: ${model}`)), []);
