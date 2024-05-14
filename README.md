@@ -1,7 +1,7 @@
 <div align="center">
     <h1>Live LLM Token Counter</h1>
     <img src="images/icon.png" alt="Logo" width="300" height="300"><br>
-    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.2.1-blue?style=flat&logo=visualstudiocode" alt="VSCode Version"></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.2.2-blue?style=flat&logo=visualstudiocode" alt="VSCode Version"></a>
     <br><br>
 </div>
 

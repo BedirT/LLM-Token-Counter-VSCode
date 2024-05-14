@@ -2,6 +2,11 @@
 
 All notable changes to the "gpt-token-counter" extension will be documented in this file.
 
+## [1.2.2]
+
+### Added
+- Changelog file.
+
 ## [1.2.1]
 
 ### Changed
