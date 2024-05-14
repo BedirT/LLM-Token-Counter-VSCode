@@ -2,7 +2,7 @@
   "name": "gpt-token-counter-live",
   "displayName": "Live LLM Token Counter",
   "description": "Live Token Counter for Language Models",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"
@@ -11,7 +11,12 @@
     "Other"
   ],
   "activationEvents": [
-    "*"
+    "onStartupFinished",
+    "onCommand:gpt-token-counter-live.countTokens",
+    "onCommand:gpt-token-counter-live.changeModel",
+    "onLanguage:plaintext",
+    "onLanguage:javascript",
+    "onLanguage:typescript"
   ],
   "icon": "images/icon.png",
   "galleryBanner": {
@@ -21,7 +26,7 @@
   "engines": {
     "vscode": "^1.78.0"
   },
-  "main": "./extension.js",
+  "main": "./src/extension.js",
   "scripts": {
     "lint": "eslint .",
     "pretest": "npm run lint",
@@ -63,5 +68,15 @@
       }
     ]
   },
+  "keywords": [
+    "GPT",
+    "OpenAI",
+    "Claude",
+    "Anthropic",
+    "Token",
+    "Counter",
+    "LLM",
+    "Language Model"
+  ],
   "homepage": "https://github.com/BedirT/LLM-Token-Counter-VSCode/blob/main/README.md"
 }

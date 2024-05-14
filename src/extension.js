@@ -1,6 +1,5 @@
 const vscode = require('vscode');
 const { countTokens } = require('@anthropic-ai/tokenizer');
-
 let encode = require('gpt-tokenizer').encode;
 
 /**
@@ -12,29 +11,16 @@ function activate(context) {
 
     const modelProviders = {
         'openai': [
-            'gpt-4',
+            'gpt-4o',
+            'gpt-4', // Turbo is also here
             'gpt-3.5-turbo',
             'text-davinci-003',
             'davinci',
-            'curie',
             'babbage',
-            'ada',
-            'davinci-codex',
-            'cushman-codex',
-            'text-embedding-ada-002',
-            'text-similarity-davinci-001',
-            'text-similarity-curie-001',
-            'text-similarity-babbage-001',
-            'text-similarity-ada-001',
-            'text-search-davinci-doc-001',
-            'text-search-curie-doc-001',
-            'text-search-babbage-doc-001',
-            'text-search-ada-doc-001',
-            'code-search-babbage-code-001',
-            'code-search-ada-code-001',
         ],
         'anthropic': [
-            'claude' // All anthropic models use the same tokenizer
+            'claude-2',
+            'claude-3 (Approximate)', // There is no exact tokenizer for claude-3
         ]
     };
 
@@ -45,7 +31,7 @@ function activate(context) {
 
     // Function to handle special tokens
     function handleSpecialTokens(text) {
-        const specialTokens = ['<|im_start|>'];
+        const specialTokens = [''];
         specialTokens.forEach(token => {
             if (text.includes(token)) {
                 text = text.replace(token, '');
@@ -95,7 +81,12 @@ function activate(context) {
             currentModel = model;
 
             if (currentProvider === 'openai') {
-                encode = require(`gpt-tokenizer/model/${currentModel}`).encode;
+                try {
+                    encode = require(`gpt-tokenizer/model/${currentModel}`).encode;
+                } catch (error) {
+                    vscode.window.showErrorMessage(`Failed to load encoder for model ${currentModel}: ${error.message}`);
+                    return;
+                }
             }
 
             updateTokenCount();

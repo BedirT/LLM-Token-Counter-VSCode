@@ -1,8 +1,11 @@
-# Live LLM Token Counter
+<div align="center">
+    <h1>Live LLM Token Counter</h1>
+    <img src="images/icon.png" alt="Logo" width="300" height="300"><br>
+    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.2.0-blue?style=flat&logo=visualstudiocode" alt="VSCode Version"></a>
+    <br><br>
+</div>
 
-<a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live">![](https://img.shields.io/badge/VSCode-v1.0-blue?style=flat&logo=visualstudiocode)</a>
-
-The "gpt-token-counter-live" is a Visual Studio Code extension that displays the token count of selected text or the entire open document in the status bar. The token count is determined using the official tokenizers of [GPT](https://github.com/niieani/gpt-tokenizer) and [Claude](https://github.com/anthropics/anthropic-tokenizer-typescript).
+The "gpt-token-counter-live" is a Visual Studio Code extension that displays the token count of selected text or the entire open document in the status bar. The token count is determined using these tokenizers for [GPT](https://github.com/niieani/gpt-tokenizer) and [Claude](https://github.com/anthropics/anthropic-tokenizer-typescript).
 
 This tool is built to get a speedy token counting result right on VS Code while you are working on prompting files. I personally needed a lot while working on many LLM projects, so I decided to make one for myself. I hope this helps you too!
 
@@ -33,6 +36,13 @@ The extension does not currently add any VS Code settings.
 There are currently no known issues. If you encounter a problem, please report it on the [issue tracker](https://github.com/BedirT/LLM-Token-Counter-VSCode/issues).
 
 ## Release Notes
+
+### 1.2.0
+
+- Modified the code to increase security.
+- Added support for GPT-4o tokenizer.
+- Removed unused models from the tokenizer list.
+- Added Claude-3 as option using approximate token count.
 
 ### 1.1.0
 
