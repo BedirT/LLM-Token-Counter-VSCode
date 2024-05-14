@@ -1,6 +1,8 @@
 const vscode = require('vscode');
+const { encoding_for_model } = require('tiktoken');
 const { countTokens } = require('@anthropic-ai/tokenizer');
-let encode = require('gpt-tokenizer').encode;
+
+let encoder = null;  // Initialize encoder as null
 
 /**
  * @param {vscode.ExtensionContext} context
@@ -26,8 +28,8 @@ function activate(context) {
 
     const specialTokens = {
         'gpt-4o': ['<|endoftext|>'],
-        'gpt-4': ['<|im_start|>', '<|endoftext|>', '<|im_end|>'],
-        'gpt-3.5-turbo': ['<|im_start|>', '<|endoftext|>', '<|im_end|>'],
+        'gpt-4': ['<|endoftext|>'],
+        'gpt-3.5-turbo': ['<|endoftext|>'],
         'text-davinci-003': ['<|endoftext|>'],
         'davinci': ['<|endoftext|>'],
         'babbage': ['<|endoftext|>'],
@@ -40,13 +42,24 @@ function activate(context) {
 
     context.subscriptions.push(statusBar);
 
+    // Function to initialize the encoder
+    function initializeEncoder(model) {
+        if (encoder) {
+            encoder.free();
+        }
+        encoder = encoding_for_model(model);
+    }
+
     // Function to handle special tokens
     function handleSpecialTokens(text, model) {
         const tokens = specialTokens[model] || [];
+        let specialTokenCount = 0;
         tokens.forEach(token => {
+            const occurrences = text.split(token).length - 1;
+            specialTokenCount += occurrences;
             text = text.split(token).join('');
         });
-        return text;
+        return { text, specialTokenCount };
     }
 
     let updateTokenCount = () => {
@@ -61,14 +74,15 @@ function activate(context) {
         let text = selection.isEmpty ? document.getText() : document.getText(selection);
 
         // Handle special tokens before tokenizing
-        text = handleSpecialTokens(text, currentModel);
+        const { text: processedText, specialTokenCount } = handleSpecialTokens(text, currentModel);
 
         let tokenCount;
-
         if (currentProvider === 'anthropic') {
-            tokenCount = countTokens(text);
+            tokenCount = countTokens(processedText) + specialTokenCount;
+        } else if (encoder) {
+            tokenCount = encoder.encode(processedText).length + specialTokenCount;
         } else {
-            tokenCount = encode(text).length;
+            tokenCount = specialTokenCount;
         }
 
         statusBar.text = `Token Count: ${tokenCount} (${currentModel})`;
@@ -77,7 +91,6 @@ function activate(context) {
 
     vscode.window.onDidChangeTextEditorSelection(updateTokenCount, null, context.subscriptions);
     vscode.window.onDidChangeActiveTextEditor(updateTokenCount, null, context.subscriptions);
-    vscode.workspace.onDidChangeTextDocument(updateTokenCount, null, context.subscriptions);
     vscode.workspace.onDidChangeTextDocument(updateTokenCount, null, context.subscriptions);
 
     let disposable = vscode.commands.registerCommand('gpt-token-counter-live.changeModel', async function () {
@@ -93,7 +106,7 @@ function activate(context) {
 
             if (currentProvider === 'openai') {
                 try {
-                    encode = require(`gpt-tokenizer/model/${currentModel}`).encode;
+                    initializeEncoder(currentModel);
                 } catch (error) {
                     vscode.window.showErrorMessage(`Failed to load encoder for model ${currentModel}: ${error.message}`);
                     return;
@@ -107,10 +120,15 @@ function activate(context) {
     context.subscriptions.push(disposable);
 
     // Initial update
+    initializeEncoder(currentModel);
     updateTokenCount();
 }
 
-function deactivate() {}
+function deactivate() {
+    if (encoder) {
+        encoder.free();
+    }
+}
 
 module.exports = {
     activate,
