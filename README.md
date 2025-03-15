@@ -1,7 +1,8 @@
 <div align="center">
     <h1>Live LLM Token Counter</h1>
     <img src="images/icon.png" alt="Logo" width="300" height="300"><br>
-    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.2.2-blue?style=flat&logo=visualstudiocode" alt="VSCode Version"></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.2.3-blue?style=flat&logo=visualstudiocode" alt="VSCode Version"></a>
+    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="OpenVSX Version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.2.3%20-%20%23bb3ec2?style=flat"></a>
     <br><br>
 </div>
 
@@ -26,6 +27,7 @@ https://github.com/BedirT/LLM-Token-Counter-VSCode/assets/10860127/5dffabb0-28c2
 ## Requirements
 
 - Visual Studio Code: The extension is developed for VS Code and will not work with other editors.
+    - It is also hosted on the [Open VSX Registry](https://open-vsx.org/extension/bedirt/gpt-token-counter-live).
 
 ## Extension Settings
 
@@ -36,6 +38,13 @@ The extension does not currently add any VS Code settings.
 There are currently no known issues. If you encounter a problem, please report it on the [issue tracker](https://github.com/BedirT/LLM-Token-Counter-VSCode/issues).
 
 ## Release Notes
+
+### 1.2.3
+- Added support for new OpenAI models: o3-mini, o1, o1-mini, gpt-4o-mini
+- Updated to tiktoken 1.0.20
+- Updated Claude models to only include Claude-3.5, Claude-3.7
+- Removed older models: text-davinci-003, davinci, babbage
+- Removed Claude-2 and Claude-3
 
 ### 1.2.1
 

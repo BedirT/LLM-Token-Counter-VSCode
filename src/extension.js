@@ -13,28 +13,30 @@ function activate(context) {
 
     const modelProviders = {
         'openai': [
+            'o3-mini',
+            'o1',
+            'o1-mini',
             'gpt-4o',
+            'gpt-4o-mini',
             'gpt-4',
             'gpt-3.5-turbo',
-            'text-davinci-003',
-            'davinci',
-            'babbage',
         ],
         'anthropic': [
-            'claude-2',
-            'claude-3 (Approximate)', // There is no exact tokenizer for claude-3
+            'claude-3.5 (Approximate)', // There is no exact tokenizer for claude-3
+            'claude-3.7 (Approximate)',
         ]
     };
 
     const specialTokens = {
+        'o3-mini': ['<|endoftext|>'],
+        'o1': ['<|endoftext|>'],
+        'o1-mini': ['<|endoftext|>'],
         'gpt-4o': ['<|endoftext|>'],
+        'gpt-4o-mini': ['<|endoftext|>'],
         'gpt-4': ['<|endoftext|>'],
         'gpt-3.5-turbo': ['<|endoftext|>'],
-        'text-davinci-003': ['<|endoftext|>'],
-        'davinci': ['<|endoftext|>'],
-        'babbage': ['<|endoftext|>'],
-        'claude-2': [],
-        'claude-3': [] // Approximate
+        'claude-3.5': [], // Approximate
+        'claude-3.7': [], // Approximate
     };
 
     let currentModel = modelProviders.openai[0];
