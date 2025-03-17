@@ -22,8 +22,8 @@ function activate(context) {
             'gpt-3.5-turbo',
         ],
         'anthropic': [
-            'claude-3.5 (Approximate)', // There is no exact tokenizer for claude-3
-            'claude-3.7 (Approximate)',
+            'claude-3.5*', // There is no exact tokenizer for claude-3
+            'claude-3.7*',
         ]
     };
 
@@ -35,8 +35,8 @@ function activate(context) {
         'gpt-4o-mini': ['<|endoftext|>'],
         'gpt-4': ['<|endoftext|>'],
         'gpt-3.5-turbo': ['<|endoftext|>'],
-        'claude-3.5': [], // Approximate
-        'claude-3.7': [], // Approximate
+        'claude-3.5*': [], // Approximate
+        'claude-3.7*': [], // Approximate
     };
 
     let currentModel = modelProviders.openai[0];

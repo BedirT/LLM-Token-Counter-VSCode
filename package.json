@@ -2,7 +2,7 @@
   "name": "gpt-token-counter-live",
   "displayName": "Live LLM Token Counter",
   "description": "Live Token Counter for Language Models",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"
