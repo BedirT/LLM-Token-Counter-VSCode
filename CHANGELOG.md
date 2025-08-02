@@ -2,6 +2,12 @@
 
 All notable changes to the "gpt-token-counter" extension will be documented in this file.
 
+## [1.3.0]
+
+### Added
+- Token View option for highlighting tokens with alternating colors.
+- Model menu simplified to use model families.
+
 ## [1.2.5]
 
 ### Changed
