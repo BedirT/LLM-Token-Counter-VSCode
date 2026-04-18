@@ -507,9 +507,13 @@ async function fetchHuggingfaceTokenizerFiles(modelId) {
     // Bound every network round trip so a stalled proxy can't pin `hfStatus` at `loading`
     // forever. On abort the promise rejects, `beginHuggingfaceLoad`'s catch flips status to
     // `error`, and `maybeRetryHuggingfaceLoad` can fire again after the cooldown.
-    const signal = AbortSignal.timeout(HF_FETCH_TIMEOUT_MS);
+    // Each fetch gets a FRESH timeout signal: a single shared `AbortSignal.timeout(...)`
+    // starts counting the moment it's created, so a slow `tokenizer.json` would eat into
+    // the `tokenizer_config.json` budget or abort it immediately.
 
-    const tokenizerResp = await fetch(`${baseUrl}/tokenizer.json`, { signal });
+    const tokenizerResp = await fetch(`${baseUrl}/tokenizer.json`, {
+        signal: AbortSignal.timeout(HF_FETCH_TIMEOUT_MS)
+    });
     if (!tokenizerResp.ok) {
         throw new Error(`Failed to fetch tokenizer.json for "${modelId}" (HTTP ${tokenizerResp.status}).`);
     }
@@ -520,7 +524,9 @@ async function fetchHuggingfaceTokenizerFiles(modelId) {
     // transient failure would poison the cache with wrong-count results. Treat 404 (repo
     // legitimately does not ship it) as the only non-fatal outcome; everything else throws.
     let tokenizerConfigJson = '{}';
-    const configResp = await fetch(`${baseUrl}/tokenizer_config.json`, { signal });
+    const configResp = await fetch(`${baseUrl}/tokenizer_config.json`, {
+        signal: AbortSignal.timeout(HF_FETCH_TIMEOUT_MS)
+    });
     if (configResp.ok) {
         tokenizerConfigJson = await configResp.text();
     } else if (configResp.status !== 404) {
@@ -556,12 +562,24 @@ function huggingfaceTokenizerSupportsHighlight(tokenizer) {
 // A crash or concurrent writer can no longer leave a half-written file at finalPath.
 // On any failure during write/fsync/rename the temp file is unlinked so repeated
 // retries don't accumulate orphan `*.tmp.*` files in globalStorage.
+//
+// `fs.writeSync` may return a partial byte count (disk-full, network FS, signal
+// interruption), so we loop until every byte lands before fsync+rename. A single
+// raw call would silently truncate the cache file while still reporting success.
 function writeAtomicFileSync(finalPath, data) {
     const tmpPath = `${finalPath}.tmp.${process.pid}.${Date.now()}`;
     try {
+        const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8');
         const fd = fs.openSync(tmpPath, 'w');
         try {
-            fs.writeSync(fd, data);
+            let offset = 0;
+            while (offset < buffer.length) {
+                const written = fs.writeSync(fd, buffer, offset, buffer.length - offset);
+                if (written <= 0) {
+                    throw new Error(`writeSync reported 0 bytes written at offset ${offset}/${buffer.length}`);
+                }
+                offset += written;
+            }
             fs.fsyncSync(fd);
         } finally {
             fs.closeSync(fd);

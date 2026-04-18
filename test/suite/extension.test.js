@@ -347,9 +347,12 @@ suite('HuggingFace Tokenizer', () => {
 						return;
 					}
 					const baseUrl = 'https://huggingface.co/Xenova/gpt-4/resolve/main';
+					// Each fetch gets its own timeout signal so a stalled proxy aborts
+					// cleanly and the suite skips (via the outer try/catch) instead of
+					// hanging until Mocha's 30s suite timeout fires a hard failure.
 					const [tResp, cResp] = await Promise.all([
-						fetch(`${baseUrl}/tokenizer.json`),
-						fetch(`${baseUrl}/tokenizer_config.json`)
+						fetch(`${baseUrl}/tokenizer.json`, { signal: AbortSignal.timeout(15000) }),
+						fetch(`${baseUrl}/tokenizer_config.json`, { signal: AbortSignal.timeout(15000) })
 					]);
 					if (!tResp.ok || !cResp.ok) {
 						fetchFailed = true;
