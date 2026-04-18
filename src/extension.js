@@ -1,6 +1,10 @@
 const vscode = require('vscode');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const { encoding_for_model, get_encoding } = require('tiktoken');
 const { countTokens, getTokenizer } = require('@anthropic-ai/tokenizer');
+const { Tokenizer: HuggingfaceTokenizer } = require('@huggingface/tokenizers');
 const { minimatch } = require('minimatch');
 
 const CONFIG_SECTION = 'gpt-token-counter-live';
@@ -11,8 +15,12 @@ const DEFAULT_STATUS_TEMPLATE = 'Token Count: {count} ({family})';
 const MODEL_FAMILIES = {
     'openai': 'GPT',
     'anthropic': 'Claude',
-    'gemini': 'Gemini'
+    'gemini': 'Gemini',
+    'huggingface': 'HuggingFace'
 };
+
+const HF_CACHE_DIR_NAME = 'hf-tokenizers';
+const HF_HUB_BASE_URL = 'https://huggingface.co';
 
 const HIGHLIGHT_EVEN_KEY = 'highlightEvenColor';
 const HIGHLIGHT_ODD_KEY = 'highlightOddColor';
@@ -372,8 +380,222 @@ function createTokenDecorationTypes() {
     };
 }
 
+function deriveHfSafeId(modelId) {
+    if (typeof modelId !== 'string') {
+        return '';
+    }
+    const trimmed = modelId.trim();
+    if (!trimmed) {
+        return '';
+    }
+    // Build a readable prefix for cache debuggability, then append a short hash of the
+    // original model ID. The hash guarantees the mapping is injective, so inputs whose
+    // readable forms would collide (e.g. `a/b--c` and `a--b/c` both reduce to `a--b--c`)
+    // still resolve to distinct cache filenames and do not poison each other.
+    const readable = trimmed
+        .replace(/\\/g, '/')
+        .replace(/\//g, '--')
+        .replace(/[^A-Za-z0-9._-]/g, '_');
+    const hash = crypto.createHash('sha256').update(trimmed).digest('hex').slice(0, 12);
+    return `${readable}_${hash}`;
+}
+
+function resolveHuggingfaceSource(config) {
+    const modelId = typeof config.modelId === 'string' ? config.modelId.trim() : '';
+    const localPath = typeof config.localPath === 'string' ? config.localPath.trim() : '';
+
+    if (localPath) {
+        return { kind: 'local', path: localPath };
+    }
+    if (modelId) {
+        return { kind: 'remote', modelId, safeId: deriveHfSafeId(modelId) };
+    }
+    return { kind: 'none' };
+}
+
+function readHuggingfaceConfigFromVscode() {
+    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+    return {
+        modelId: config.get('huggingfaceModelId') || '',
+        localPath: config.get('huggingfaceTokenizerPath') || ''
+    };
+}
+
+/**
+ * Walks a token id array and produces character offsets in the decoded text by
+ * progressively decoding each id. Byte-level BPE tokenizers emit multi-byte
+ * characters across several consecutive ids; we group those ids together and
+ * attribute the full run to the first id in the group (remaining ids get a
+ * zero-length range so indexing matches).
+ *
+ * Returns `{ offsets, decoded, aligned }`. `aligned` is `true` only when the
+ * full decode matches `text`, which is the guard we use before rendering
+ * highlights. SentencePiece and other decoder-cleaning tokenizers can drop
+ * leading whitespace and produce a text-shaped but offset-shifted output.
+ *
+ * @param {Object} tokenizer  An `@huggingface/tokenizers` Tokenizer instance.
+ * @param {string} text       The original source text.
+ * @param {number[]} ids      Token ids produced by `tokenizer.encode(text).ids`.
+ */
+function reconstructHuggingfaceOffsets(tokenizer, text, ids) {
+    if (!Array.isArray(ids) || ids.length === 0) {
+        return { offsets: [], decoded: '', aligned: text.length === 0 };
+    }
+
+    const decodeOptions = { skip_special_tokens: false, clean_up_tokenization_spaces: false };
+    const FFFD = '\uFFFD';
+
+    const endsWithHighSurrogate = (str) => str.length > 0 && /[\uD800-\uDBFF]$/.test(str);
+    const needsContinuation = (str) => str.includes(FFFD) || endsWithHighSurrogate(str);
+
+    const offsets = new Array(ids.length);
+    let cursor = 0;
+    let i = 0;
+    let decoded = '';
+
+    while (i < ids.length) {
+        let piece;
+        try {
+            piece = tokenizer.decode([ids[i]], decodeOptions);
+        } catch (error) {
+            return { offsets, decoded, aligned: false, error };
+        }
+
+        if (!needsContinuation(piece)) {
+            offsets[i] = [cursor, cursor + piece.length];
+            cursor += piece.length;
+            decoded += piece;
+            i += 1;
+            continue;
+        }
+
+        // Group this id with subsequent ids until the cumulative decode is a
+        // well-formed string. Attribute the whole range to the first id and
+        // give the follower ids a zero-length slice anchored at the group end.
+        let end = i + 1;
+        let groupDecoded = piece;
+        while (end < ids.length && needsContinuation(groupDecoded)) {
+            try {
+                groupDecoded = tokenizer.decode(ids.slice(i, end + 1), decodeOptions);
+            } catch (error) {
+                return { offsets, decoded, aligned: false, error };
+            }
+            end += 1;
+        }
+
+        const groupEnd = cursor + groupDecoded.length;
+        offsets[i] = [cursor, groupEnd];
+        for (let k = i + 1; k < end; k++) {
+            offsets[k] = [groupEnd, groupEnd];
+        }
+        decoded += groupDecoded;
+        cursor = groupEnd;
+        i = end;
+    }
+
+    const aligned = decoded === text;
+    return { offsets, decoded, aligned };
+}
+
+async function fetchHuggingfaceTokenizerFiles(modelId) {
+    if (typeof fetch !== 'function') {
+        throw new Error('Global fetch is not available. VS Code 1.82+ / Node 18+ is required to load HuggingFace tokenizers from the Hub.');
+    }
+
+    const baseUrl = `${HF_HUB_BASE_URL}/${modelId}/resolve/main`;
+
+    // Bound every network round trip so a stalled proxy can't pin `hfStatus` at `loading`
+    // forever. On abort the promise rejects, `beginHuggingfaceLoad`'s catch flips status to
+    // `error`, and `maybeRetryHuggingfaceLoad` can fire again after the cooldown.
+    const signal = AbortSignal.timeout(HF_FETCH_TIMEOUT_MS);
+
+    const tokenizerResp = await fetch(`${baseUrl}/tokenizer.json`, { signal });
+    if (!tokenizerResp.ok) {
+        throw new Error(`Failed to fetch tokenizer.json for "${modelId}" (HTTP ${tokenizerResp.status}).`);
+    }
+    const tokenizerJson = await tokenizerResp.text();
+
+    // tokenizer_config.json drives rules like `remove_space`, `do_lowercase_and_remove_accent`,
+    // `eos_token`, and `target_lang` for Unigram/legacy tokenizers, so silently swallowing a
+    // transient failure would poison the cache with wrong-count results. Treat 404 (repo
+    // legitimately does not ship it) as the only non-fatal outcome; everything else throws.
+    let tokenizerConfigJson = '{}';
+    const configResp = await fetch(`${baseUrl}/tokenizer_config.json`, { signal });
+    if (configResp.ok) {
+        tokenizerConfigJson = await configResp.text();
+    } else if (configResp.status !== 404) {
+        throw new Error(`Failed to fetch tokenizer_config.json for "${modelId}" (HTTP ${configResp.status}).`);
+    }
+
+    return { tokenizerJson, tokenizerConfigJson };
+}
+
+function buildHuggingfaceTokenizerFromStrings(tokenizerJson, tokenizerConfigJson) {
+    const tokenizerObj = JSON.parse(tokenizerJson);
+    const configObj = tokenizerConfigJson ? JSON.parse(tokenizerConfigJson) : {};
+    return new HuggingfaceTokenizer(tokenizerObj, configObj);
+}
+
+// Probe whether `reconstructHuggingfaceOffsets` will produce aligned offsets for this tokenizer.
+// SentencePiece/WordPiece variants and other whitespace-normalizing decoders cannot round-trip,
+// so we detect that at load time and advertise highlight support accordingly. A probe that mixes
+// leading whitespace, punctuation, and multi-line text catches the common non-roundtripping cases.
+const HF_HIGHLIGHT_PROBE_TEXT = ' Hello, world!\nSecond line.';
+function huggingfaceTokenizerSupportsHighlight(tokenizer) {
+    try {
+        const encoded = tokenizer.encode(HF_HIGHLIGHT_PROBE_TEXT, { add_special_tokens: false });
+        const ids = Array.isArray(encoded && encoded.ids) ? encoded.ids : [];
+        const result = reconstructHuggingfaceOffsets(tokenizer, HF_HIGHLIGHT_PROBE_TEXT, ids);
+        return result.aligned === true;
+    } catch (_error) {
+        return false;
+    }
+}
+
+// Write `data` to `finalPath` atomically: stage to a temp file, fsync, rename.
+// A crash or concurrent writer can no longer leave a half-written file at finalPath.
+// On any failure during write/fsync/rename the temp file is unlinked so repeated
+// retries don't accumulate orphan `*.tmp.*` files in globalStorage.
+function writeAtomicFileSync(finalPath, data) {
+    const tmpPath = `${finalPath}.tmp.${process.pid}.${Date.now()}`;
+    try {
+        const fd = fs.openSync(tmpPath, 'w');
+        try {
+            fs.writeSync(fd, data);
+            fs.fsyncSync(fd);
+        } finally {
+            fs.closeSync(fd);
+        }
+        fs.renameSync(tmpPath, finalPath);
+    } catch (error) {
+        removeFileIfExists(tmpPath);
+        throw error;
+    }
+}
+
+function removeFileIfExists(filePath) {
+    try {
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+    } catch (_ignored) {
+        // best-effort cleanup; leave the stale file rather than crash the extension
+    }
+}
+
+const HF_RETRY_COOLDOWN_MS = 30000;
+const HF_FETCH_TIMEOUT_MS = 30000;
+
 let tokenizerState = {
+    kind: null,
     encoder: null,
+    hfTokenizer: null,
+    hfStatus: 'idle',
+    hfModelId: '',
+    hfLocalPath: '',
+    hfLoadToken: 0,
+    hfLastAttemptAt: 0,
+    hfErrorLabel: null,
     supportsHighlight: false,
     requiresNormalization: false
 };
@@ -408,6 +630,9 @@ function activate(context) {
     let currentProvider = getDefaultProviderFromConfig();
     let currentFamilyName = MODEL_FAMILIES[currentProvider];
     let highlightEnabled = false;
+    // Tracks the last (document uri, HF model) pair we warned about for round-trip
+    // misalignment so we don't spam the dev console on every keystroke.
+    let lastHfHighlightWarnKey = null;
 
     context.subscriptions.push(
         statusBar,
@@ -617,14 +842,181 @@ function activate(context) {
     }
 
     function resetTokenizerState() {
-        if (tokenizerState.encoder) {
+        if (tokenizerState.encoder && typeof tokenizerState.encoder.free === 'function') {
             tokenizerState.encoder.free();
         }
         tokenizerState = {
+            kind: null,
             encoder: null,
+            hfTokenizer: null,
+            hfStatus: 'idle',
+            hfModelId: '',
+            hfLocalPath: '',
+            hfLoadToken: tokenizerState.hfLoadToken + 1, // invalidate any pending async load
+            hfLastAttemptAt: 0,
+            hfErrorLabel: null,
             supportsHighlight: false,
             requiresNormalization: false
         };
+    }
+
+    function ensureHuggingfaceCacheDir() {
+        const base = context.globalStorageUri && context.globalStorageUri.fsPath;
+        if (!base) {
+            throw new Error('Extension global storage path is unavailable.');
+        }
+        const dir = path.join(base, HF_CACHE_DIR_NAME);
+        fs.mkdirSync(dir, { recursive: true });
+        return dir;
+    }
+
+    function getHuggingfaceCacheFilePath(safeId, suffix) {
+        const dir = ensureHuggingfaceCacheDir();
+        return path.join(dir, `${safeId}${suffix}`);
+    }
+
+    async function loadHuggingfaceTokenizerFromSource(source, loadToken) {
+        if (source.kind === 'local') {
+            const filePath = source.path;
+            // The setting is documented as an absolute path. Relative paths resolve against
+            // `process.cwd()`, which in the VS Code extension host is non-deterministic
+            // (workspace root when launched from a terminal, the VS Code install dir when
+            // launched from an app icon). Surface that explicitly instead of failing with a
+            // misleading "not found" error using the literal relative string.
+            if (!path.isAbsolute(filePath)) {
+                throw new Error(`HuggingFace tokenizer path must be absolute, got "${filePath}".`);
+            }
+            if (!fs.existsSync(filePath)) {
+                throw new Error(`HuggingFace tokenizer file not found at "${filePath}".`);
+            }
+            const tokenizerJson = fs.readFileSync(filePath, 'utf8');
+            const siblingConfig = path.join(path.dirname(filePath), 'tokenizer_config.json');
+            let tokenizerConfigJson = '{}';
+            if (fs.existsSync(siblingConfig)) {
+                tokenizerConfigJson = fs.readFileSync(siblingConfig, 'utf8');
+            }
+            return {
+                tokenizer: buildHuggingfaceTokenizerFromStrings(tokenizerJson, tokenizerConfigJson),
+                loadToken
+            };
+        }
+
+        if (source.kind === 'remote') {
+            const tokenizerPath = getHuggingfaceCacheFilePath(source.safeId, '.json');
+            const configPath = getHuggingfaceCacheFilePath(source.safeId, '.config.json');
+
+            // Try the cache first. Validate by actually parsing + constructing the
+            // tokenizer; if that throws, the cache entry is corrupt (interrupted
+            // write, cross-window race, truncated disk) so we wipe it and refetch.
+            if (fs.existsSync(tokenizerPath)) {
+                try {
+                    const cachedTokenizerJson = fs.readFileSync(tokenizerPath, 'utf8');
+                    const cachedConfigJson = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '{}';
+                    return {
+                        tokenizer: buildHuggingfaceTokenizerFromStrings(cachedTokenizerJson, cachedConfigJson),
+                        loadToken
+                    };
+                } catch (cacheError) {
+                    console.warn(`[gpt-token-counter-live] Discarding corrupt HuggingFace cache for "${source.modelId}" and refetching: ${cacheError.message}`);
+                    removeFileIfExists(tokenizerPath);
+                    removeFileIfExists(configPath);
+                }
+            }
+
+            // Cache miss or self-healed from a corrupt entry. Fetch, build (which
+            // validates the JSON), then only persist to the cache after we know
+            // the data produces a usable tokenizer.
+            const fetched = await fetchHuggingfaceTokenizerFiles(source.modelId);
+            const tokenizer = buildHuggingfaceTokenizerFromStrings(fetched.tokenizerJson, fetched.tokenizerConfigJson);
+
+            try {
+                writeAtomicFileSync(tokenizerPath, fetched.tokenizerJson);
+                writeAtomicFileSync(configPath, fetched.tokenizerConfigJson);
+            } catch (writeError) {
+                console.warn(`[gpt-token-counter-live] Could not cache tokenizer for "${source.modelId}": ${writeError.message}`);
+            }
+
+            return { tokenizer, loadToken };
+        }
+
+        throw new Error('Set `huggingfaceModelId` (e.g. "Qwen/Qwen2.5-7B-Instruct") or `huggingfaceTokenizerPath` to use the HuggingFace tokenizer.');
+    }
+
+    // Fire-and-forget retry when the HF tokenizer failed to load earlier. Triggered from
+    // the tokenization hot path so the first keystroke after a network recovery (or after
+    // the user drops a local tokenizer.json into the configured path) picks it up.
+    // Throttled to avoid hammering the hub during sustained outages.
+    function maybeRetryHuggingfaceLoad() {
+        if (currentProvider !== 'huggingface') {
+            return;
+        }
+        if (tokenizerState.hfStatus !== 'error') {
+            return;
+        }
+        if (Date.now() - (tokenizerState.hfLastAttemptAt || 0) < HF_RETRY_COOLDOWN_MS) {
+            return;
+        }
+        void beginHuggingfaceLoad();
+    }
+
+    async function beginHuggingfaceLoad() {
+        const hfConfig = readHuggingfaceConfigFromVscode();
+        const source = resolveHuggingfaceSource(hfConfig);
+        const loadToken = tokenizerState.hfLoadToken;
+        // Snapshot whether we were already advertising an error before this attempt.
+        // Used below to gate the error notification so the throttled retry loop doesn't
+        // pop a fresh toast every 30 seconds for the same sustained failure.
+        const wasAlreadyErrored = tokenizerState.hfStatus === 'error';
+        const previousErrorLabel = tokenizerState.hfErrorLabel || null;
+
+        tokenizerState.kind = 'huggingface';
+        tokenizerState.hfStatus = 'loading';
+        tokenizerState.hfTokenizer = null;
+        tokenizerState.hfModelId = hfConfig.modelId;
+        tokenizerState.hfLocalPath = hfConfig.localPath;
+        tokenizerState.hfLastAttemptAt = Date.now();
+        tokenizerState.supportsHighlight = false;
+
+        if (source.kind === 'none') {
+            tokenizerState.hfStatus = 'error';
+            tokenizerState.hfErrorLabel = '<no-config>';
+            if (!wasAlreadyErrored || previousErrorLabel !== '<no-config>') {
+                vscode.window.showErrorMessage('HuggingFace tokenizer is active but no model ID or local tokenizer path is configured. Open settings and set `gpt-token-counter-live.huggingfaceModelId` or `gpt-token-counter-live.huggingfaceTokenizerPath`.');
+            }
+            updateHighlightStatusBar();
+            await updateTokenCount();
+            return;
+        }
+
+        try {
+            const { tokenizer, loadToken: returnedToken } = await loadHuggingfaceTokenizerFromSource(source, loadToken);
+            // A concurrent reset (provider change, config change) may have invalidated this load.
+            if (returnedToken !== tokenizerState.hfLoadToken || tokenizerState.kind !== 'huggingface') {
+                return;
+            }
+            tokenizerState.hfTokenizer = tokenizer;
+            tokenizerState.hfStatus = 'ready';
+            tokenizerState.hfErrorLabel = null;
+            tokenizerState.supportsHighlight = huggingfaceTokenizerSupportsHighlight(tokenizer);
+        } catch (error) {
+            // Mirror the success-branch guard. Without the `loadToken` check, a stale A-load
+            // that rejects after B-load succeeded would overwrite B's good state with an
+            // error and a toast referencing the wrong model.
+            if (loadToken !== tokenizerState.hfLoadToken || tokenizerState.kind !== 'huggingface') {
+                return;
+            }
+            tokenizerState.hfStatus = 'error';
+            tokenizerState.hfTokenizer = null;
+            tokenizerState.supportsHighlight = false;
+            const label = source.kind === 'local' ? source.path : source.modelId;
+            tokenizerState.hfErrorLabel = label;
+            if (!wasAlreadyErrored || previousErrorLabel !== label) {
+                vscode.window.showErrorMessage(`Failed to load HuggingFace tokenizer for "${label}": ${error.message}`);
+            }
+        }
+
+        updateHighlightStatusBar();
+        await updateTokenCount();
     }
 
     // Function to initialize the encoder for the selected family
@@ -647,11 +1039,13 @@ function activate(context) {
                 }
             }
             if (candidate) {
+                tokenizerState.kind = 'tiktoken';
                 tokenizerState.encoder = candidate;
                 tokenizerState.supportsHighlight = true;
             }
         } else if (provider === 'anthropic') {
             try {
+                tokenizerState.kind = 'anthropic';
                 tokenizerState.encoder = getTokenizer();
                 tokenizerState.supportsHighlight = true;
                 tokenizerState.requiresNormalization = true;
@@ -660,17 +1054,24 @@ function activate(context) {
             }
         } else if (provider === 'gemini') {
             try {
+                tokenizerState.kind = 'tiktoken';
                 tokenizerState.encoder = get_encoding('o200k_base');
             } catch (e1) {
                 try {
+                    tokenizerState.kind = 'tiktoken';
                     tokenizerState.encoder = get_encoding('cl100k_base');
                 } catch (e2) {
+                    tokenizerState.kind = null;
                     tokenizerState.encoder = null;
                 }
             }
+        } else if (provider === 'huggingface') {
+            // HuggingFace loads asynchronously; the counter and highlight use the fallback
+            // until the tokenizer is ready, then `beginHuggingfaceLoad` triggers a re-render.
+            void beginHuggingfaceLoad();
         }
 
-        if (highlightEnabled && !tokenizerState.supportsHighlight) {
+        if (highlightEnabled && !tokenizerState.supportsHighlight && provider !== 'huggingface') {
             highlightEnabled = false;
             clearTokenHighlights();
             vscode.window.showInformationMessage('Token highlighting disabled because the selected model family does not expose precise token boundaries.');
@@ -684,8 +1085,8 @@ function activate(context) {
             return countTokens(text);
         }
 
-        if (currentProvider === 'gemini') {
-            // Fallback approximation: ~4 characters per token
+        // Everyone else (gemini and huggingface while loading) falls back to the 4-chars/token heuristic.
+        if (currentProvider === 'gemini' || currentProvider === 'huggingface') {
             return Math.ceil(text.length / 4);
         }
 
@@ -693,6 +1094,50 @@ function activate(context) {
     }
 
     function computeTokenization(text) {
+        if (tokenizerState.kind === 'huggingface') {
+            if (tokenizerState.hfStatus !== 'ready' || !tokenizerState.hfTokenizer) {
+                // Previous load failed and the session has been sitting on ~4-char/token
+                // approximations. Kick off a throttled retry so counts become accurate as
+                // soon as the underlying problem (network, missing local file) is fixed.
+                maybeRetryHuggingfaceLoad();
+                return {
+                    tokenCount: fallbackTokenCount(text),
+                    tokenizationResult: null
+                };
+            }
+            try {
+                const encoded = tokenizerState.hfTokenizer.encode(text, { add_special_tokens: false });
+                const ids = encoded.ids || [];
+                // Offset reconstruction runs a per-token `decode()` and is the expensive part
+                // of the HF hot path. Skip it when the user isn't highlighting (so plain count
+                // updates stay cheap) and when the tokenizer already failed the load-time
+                // probe (so we don't pay the cost only to throw the result away).
+                const shouldReconstructOffsets = highlightEnabled && tokenizerState.supportsHighlight;
+                const reconstruction = shouldReconstructOffsets
+                    ? reconstructHuggingfaceOffsets(tokenizerState.hfTokenizer, text, ids)
+                    : { offsets: [], aligned: false };
+                return {
+                    tokenCount: ids.length,
+                    tokenizationResult: {
+                        kind: 'huggingface',
+                        ids,
+                        tokens: encoded.tokens || [],
+                        offsets: reconstruction.offsets,
+                        aligned: reconstruction.aligned
+                    }
+                };
+            } catch (error) {
+                vscode.window.showErrorMessage(`HuggingFace tokenization failed: ${error.message}`);
+                tokenizerState.hfStatus = 'error';
+                tokenizerState.hfTokenizer = null;
+                tokenizerState.supportsHighlight = false;
+                return {
+                    tokenCount: fallbackTokenCount(text),
+                    tokenizationResult: null
+                };
+            }
+        }
+
         if (tokenizerState.encoder) {
             const processedText = tokenizerState.requiresNormalization ? text.normalize('NFKC') : text;
             try {
@@ -703,6 +1148,7 @@ function activate(context) {
                 return {
                     tokenCount: encoded.length,
                     tokenizationResult: {
+                        kind: 'tiktoken',
                         tokens: encoded,
                         normalizationChanged: tokenizerState.requiresNormalization && processedText !== text,
                         processedText,
@@ -721,7 +1167,62 @@ function activate(context) {
         };
     }
 
-    let updateTokenCount = () => {
+    function applyHuggingfaceTokenHighlights(editor, baseOffset, tokenizationResult) {
+        if (!editor || !tokenizationResult || !tokenizationResult.aligned) {
+            clearTokenHighlights(editor);
+            if (tokenizationResult && !tokenizationResult.aligned) {
+                // updateTokenCount fires on every keystroke and selection change, so an
+                // unconditional warn would flood the dev console. Emit only when the
+                // (document, model) pair transitions into the misaligned state.
+                const key = `${editor.document.uri.toString()}::${tokenizerState.hfModelId || ''}`;
+                if (lastHfHighlightWarnKey !== key) {
+                    lastHfHighlightWarnKey = key;
+                    console.warn('[gpt-token-counter-live] HuggingFace token highlight skipped because decode round-trip does not match the source text. This happens with tokenizers that strip or transform whitespace (for example many SentencePiece tokenizers).');
+                }
+            }
+            return;
+        }
+        lastHfHighlightWarnKey = null;
+
+        if (!isHighlightableEditor(editor)) {
+            clearTokenHighlights(editor);
+            return;
+        }
+
+        const evenRanges = [];
+        const oddRanges = [];
+        const document = editor.document;
+        const offsets = tokenizationResult.offsets || [];
+
+        // Alternation parity tracks *visible* tokens. `reconstructHuggingfaceOffsets`
+        // emits zero-length continuation entries for multi-id groups (CJK, emoji under
+        // byte-level BPE), and using the raw loop index would cause two adjacent visible
+        // tokens to share a color whenever a group has an even number of followers.
+        let visibleIndex = 0;
+        for (let i = 0; i < offsets.length; i++) {
+            const [start, end] = offsets[i];
+            if (start === end) {
+                continue;
+            }
+            const startPos = document.positionAt(baseOffset + start);
+            const endPos = document.positionAt(baseOffset + end);
+            const range = new vscode.Range(startPos, endPos);
+            if (range.isEmpty) {
+                continue;
+            }
+            if (visibleIndex % 2 === 0) {
+                evenRanges.push(range);
+            } else {
+                oddRanges.push(range);
+            }
+            visibleIndex++;
+        }
+
+        editor.setDecorations(tokenDecorations.even, evenRanges);
+        editor.setDecorations(tokenDecorations.odd, oddRanges);
+    }
+
+    async function updateTokenCount() {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
             statusBar.hide();
@@ -761,6 +1262,8 @@ function activate(context) {
         if (highlightEnabled) {
             if (!tokenizerState.supportsHighlight) {
                 clearTokenHighlights(editor);
+            } else if (tokenizationResult && tokenizationResult.kind === 'huggingface') {
+                applyHuggingfaceTokenHighlights(editor, baseOffset, tokenizationResult);
             } else {
                 applyTokenHighlights(editor, text, baseOffset, tokenizationResult);
             }
@@ -769,17 +1272,25 @@ function activate(context) {
         }
 
         updateHighlightStatusBar();
-    };
+    }
 
-    vscode.window.onDidChangeTextEditorSelection(updateTokenCount, null, context.subscriptions);
-    vscode.window.onDidChangeActiveTextEditor(updateTokenCount, null, context.subscriptions);
-    vscode.workspace.onDidChangeTextDocument(updateTokenCount, null, context.subscriptions);
+    const scheduleUpdateTokenCount = () => { void updateTokenCount(); };
+
+    vscode.window.onDidChangeTextEditorSelection(scheduleUpdateTokenCount, null, context.subscriptions);
+    vscode.window.onDidChangeActiveTextEditor(scheduleUpdateTokenCount, null, context.subscriptions);
+    vscode.workspace.onDidChangeTextDocument(scheduleUpdateTokenCount, null, context.subscriptions);
 
     vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration(`${CONFIG_SECTION}.statusBarDisplayTemplate`)) {
             loadStatusBarConfig();
-            updateTokenCount();
+            scheduleUpdateTokenCount();
         }
+
+        // Track whether this event already re-initialized the HF tokenizer so a single
+        // settings save that touches both `defaultModelFamily` and `huggingfaceModelId`
+        // doesn't trigger two concurrent `beginHuggingfaceLoad()` calls (doubled fetch,
+        // racing atomic writes onto the same cache path).
+        let reinitializedInThisEvent = false;
 
         if (event.affectsConfiguration(`${CONFIG_SECTION}.defaultModelFamily`)) {
             const desiredProvider = getDefaultProviderFromConfig();
@@ -789,28 +1300,50 @@ function activate(context) {
 
                 try {
                     initializeEncoderForFamily(currentProvider);
+                    reinitializedInThisEvent = true;
                 } catch (error) {
                     vscode.window.showErrorMessage(`Failed to initialize tokenizer for ${currentFamilyName}: ${error.message}`);
                 }
 
-                updateTokenCount();
+                scheduleUpdateTokenCount();
             }
         }
 
         if (event.affectsConfiguration(`${CONFIG_SECTION}.enabledFilePatterns`)) {
             loadEnabledFilePatterns();
-            updateTokenCount();
+            scheduleUpdateTokenCount();
+        }
+
+        if (!reinitializedInThisEvent && currentProvider === 'huggingface' && (
+            event.affectsConfiguration(`${CONFIG_SECTION}.huggingfaceModelId`) ||
+            event.affectsConfiguration(`${CONFIG_SECTION}.huggingfaceTokenizerPath`)
+        )) {
+            // Re-run initialization so a fresh beginHuggingfaceLoad kicks off.
+            try {
+                initializeEncoderForFamily(currentProvider);
+            } catch (error) {
+                vscode.window.showErrorMessage(`Failed to reload HuggingFace tokenizer: ${error.message}`);
+            }
+            scheduleUpdateTokenCount();
         }
     }, null, context.subscriptions);
 
     let disposable = vscode.commands.registerCommand('gpt-token-counter-live.changeModel', async function () {
+        const providerDetail = (provider) => {
+            if (provider === 'gemini') {
+                return 'Approximate tokenizer (highlighting unavailable)';
+            }
+            if (provider === 'huggingface') {
+                return 'HuggingFace tokenizer.json (configure via settings)';
+            }
+            return 'Precise tokenizer with highlighting';
+        };
+
         /** @type {(vscode.QuickPickItem & { provider?: string, family?: string, command?: string })[]} */
         const familyItems = Object.entries(MODEL_FAMILIES).map(([provider, family]) => ({
             label: `${family} (${provider})`,
             description: provider === currentProvider ? 'Currently active' : undefined,
-            detail: provider === 'gemini'
-                ? 'Approximate tokenizer (highlighting unavailable)'
-                : 'Precise tokenizer with highlighting',
+            detail: providerDetail(provider),
             provider,
             family,
             picked: provider === currentProvider
@@ -858,7 +1391,7 @@ function activate(context) {
                     // Continue with approximation where applicable
                 }
 
-                updateTokenCount();
+                scheduleUpdateTokenCount();
             }
         }
     });
@@ -869,7 +1402,13 @@ function activate(context) {
         const nextState = !highlightEnabled;
 
         if (nextState && !tokenizerState.supportsHighlight) {
-            vscode.window.showInformationMessage('Token highlighting is only available for GPT and Claude tokenizers.');
+            if (currentProvider === 'huggingface' && tokenizerState.hfStatus === 'loading') {
+                vscode.window.showInformationMessage('HuggingFace tokenizer is still loading. Try again once the download finishes.');
+            } else if (currentProvider === 'huggingface') {
+                vscode.window.showInformationMessage('Token highlighting is unavailable until a HuggingFace tokenizer is loaded successfully.');
+            } else {
+                vscode.window.showInformationMessage('Token highlighting is only available for GPT, Claude, and HuggingFace tokenizers.');
+            }
             highlightEnabled = false;
         } else if (nextState) {
             highlightEnabled = true;
@@ -884,10 +1423,41 @@ function activate(context) {
         }
 
         updateHighlightStatusBar();
-        updateTokenCount();
+        scheduleUpdateTokenCount();
     });
 
     context.subscriptions.push(toggleHighlight);
+
+    // Manual cache-bust for the HuggingFace remote tokenizer. Addresses the fact that
+    // we fetch `resolve/main` (mutable) and cache indefinitely, so an upstream tokenizer
+    // change would otherwise silently drift token counts. Users can invoke this from the
+    // Command Palette to force a re-fetch.
+    const refreshHuggingfaceCache = vscode.commands.registerCommand('gpt-token-counter-live.refreshHuggingfaceCache', () => {
+        if (currentProvider !== 'huggingface') {
+            vscode.window.showInformationMessage('Switch to the HuggingFace model family before refreshing its tokenizer cache.');
+            return;
+        }
+        const hfConfig = readHuggingfaceConfigFromVscode();
+        const source = resolveHuggingfaceSource(hfConfig);
+        if (source.kind === 'remote') {
+            removeFileIfExists(getHuggingfaceCacheFilePath(source.safeId, '.json'));
+            removeFileIfExists(getHuggingfaceCacheFilePath(source.safeId, '.config.json'));
+            vscode.window.showInformationMessage(`HuggingFace tokenizer cache cleared for "${source.modelId}". Refetching...`);
+        } else if (source.kind === 'local') {
+            vscode.window.showInformationMessage(`Reloading HuggingFace tokenizer from "${source.path}"...`);
+        } else {
+            vscode.window.showInformationMessage('HuggingFace tokenizer has no model ID or local path configured.');
+            return;
+        }
+        try {
+            initializeEncoderForFamily('huggingface');
+        } catch (error) {
+            vscode.window.showErrorMessage(`Failed to reload HuggingFace tokenizer: ${error.message}`);
+        }
+        scheduleUpdateTokenCount();
+    });
+
+    context.subscriptions.push(refreshHuggingfaceCache);
 
     const configureHighlights = vscode.commands.registerCommand('gpt-token-counter-live.configureHighlights', async () => {
         loadHighlightColors(context);
@@ -1172,7 +1742,7 @@ function activate(context) {
             loadHighlightColors(context);
 
             refreshTokenDecorations();
-            updateTokenCount();
+            scheduleUpdateTokenCount();
             panel.webview.postMessage({ type: 'colorUpdate', key, value: hexValue });
         };
 
@@ -1191,15 +1761,16 @@ function activate(context) {
 
     // Initial update
     initializeEncoderForFamily(currentProvider);
-    updateTokenCount();
+    scheduleUpdateTokenCount();
     updateHighlightStatusBar();
 }
 
 function deactivate() {
-    if (tokenizerState.encoder) {
+    if (tokenizerState.encoder && typeof tokenizerState.encoder.free === 'function') {
         tokenizerState.encoder.free();
         tokenizerState.encoder = null;
     }
+    tokenizerState.hfTokenizer = null;
 }
 
 module.exports = {
@@ -1210,6 +1781,14 @@ module.exports = {
         resolveUtf16Offset,
         buildNormalizationOffsetMap,
         resolveOriginalOffsetFromNormalized
+    },
+    __hf: {
+        deriveHfSafeId,
+        resolveHuggingfaceSource,
+        reconstructHuggingfaceOffsets,
+        buildHuggingfaceTokenizerFromStrings,
+        huggingfaceTokenizerSupportsHighlight,
+        Tokenizer: HuggingfaceTokenizer
     },
     _test: {
         loadEnabledFilePatterns,
