@@ -1,10 +1,7 @@
 const vscode = require('vscode');
 const { encoding_for_model, get_encoding } = require('tiktoken');
 const { countTokens, getTokenizer } = require('@anthropic-ai/tokenizer');
-const { TextDecoder } = require('util');
 const { minimatch } = require('minimatch');
-
-const utf8Decoder = new TextDecoder('utf-8');
 
 const CONFIG_SECTION = 'gpt-token-counter-live';
 const DEFAULT_EVEN_COLOR = '#B8D4FF';
@@ -122,6 +119,126 @@ function sanitizeProviderSetting(value) {
         }
     }
     return 'openai';
+}
+
+function buildUtf8BoundaryMap(text) {
+    const boundaries = new Map();
+    boundaries.set(0, 0);
+
+    let utf16Offset = 0;
+    let byteOffset = 0;
+
+    while (utf16Offset < text.length) {
+        const codePoint = text.codePointAt(utf16Offset);
+        const char = String.fromCodePoint(codePoint);
+        const utf16Width = char.length;
+        const byteWidth = Buffer.byteLength(char, 'utf8');
+
+        utf16Offset += utf16Width;
+        byteOffset += byteWidth;
+        boundaries.set(byteOffset, utf16Offset);
+    }
+
+    return boundaries;
+}
+
+function resolveUtf16Offset(boundaries, byteOffset, maxByteOffset, direction) {
+    if (boundaries.has(byteOffset)) {
+        return boundaries.get(byteOffset);
+    }
+
+    if (direction === 'backward') {
+        for (let cursor = byteOffset; cursor >= 0; cursor--) {
+            if (boundaries.has(cursor)) {
+                return boundaries.get(cursor);
+            }
+        }
+    } else {
+        for (let cursor = byteOffset; cursor <= maxByteOffset; cursor++) {
+            if (boundaries.has(cursor)) {
+                return boundaries.get(cursor);
+            }
+        }
+    }
+
+    return null;
+}
+
+function iterateGraphemeSegments(text) {
+    if (typeof Intl === 'undefined' || typeof Intl.Segmenter !== 'function') {
+        throw new Error('Intl.Segmenter is required for token normalization mapping.');
+    }
+
+    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+    return Array.from(segmenter.segment(text), ({ segment, index }) => ({
+        segment,
+        index
+    }));
+}
+
+function buildNormalizationOffsetMap(text) {
+    const normalizedText = text.normalize('NFKC');
+    const backward = new Array(normalizedText.length + 1);
+    const forward = new Array(normalizedText.length + 1);
+    const normalizedChunks = [];
+    let normalizedOffset = 0;
+
+    for (const { segment, index } of iterateGraphemeSegments(text)) {
+        const normalizedSegment = segment.normalize('NFKC');
+        const originalStart = index;
+        const originalEnd = index + segment.length;
+        const start = normalizedOffset;
+        const end = start + normalizedSegment.length;
+
+        normalizedChunks.push(normalizedSegment);
+
+        if (start === end) {
+            backward[start] = originalEnd;
+            forward[start] = originalEnd;
+        } else {
+            backward[start] = originalStart;
+            forward[start] = originalStart;
+
+            for (let cursor = start + 1; cursor < end; cursor++) {
+                backward[cursor] = originalStart;
+                forward[cursor] = originalEnd;
+            }
+
+            backward[end] = originalEnd;
+            forward[end] = originalEnd;
+        }
+
+        normalizedOffset = end;
+    }
+
+    // Whole-text NFKC can merge across grapheme boundaries, so reject per-segment maps that do not reassemble exactly.
+    const rebuiltNormalizedText = normalizedChunks.join('');
+    if (rebuiltNormalizedText !== normalizedText) {
+        return null;
+    }
+
+    backward[0] = 0;
+    forward[0] = 0;
+    backward[normalizedText.length] = text.length;
+    forward[normalizedText.length] = text.length;
+
+    return {
+        normalizedText,
+        backward,
+        forward
+    };
+}
+
+function resolveOriginalOffsetFromNormalized(offsetMap, normalizedOffset, direction) {
+    if (!offsetMap || normalizedOffset < 0 || normalizedOffset >= offsetMap.backward.length) {
+        return null;
+    }
+
+    if (direction === 'backward') {
+        return offsetMap.backward[normalizedOffset];
+    }
+
+    return offsetMap.forward[normalizedOffset];
 }
 
 let highlightColors = {
@@ -349,50 +466,96 @@ function activate(context) {
             return;
         }
 
-        if (tokenizationResult.normalizationChanged) {
-            clearTokenHighlights(editor);
-            return;
-        }
-
         const evenRanges = [];
         const oddRanges = [];
         const tokens = tokenizationResult.tokens;
         const document = editor.document;
-        let searchIndex = 0;
+        const renderedText = tokenizationResult.processedText || sourceText;
+        const sourceBytes = Buffer.from(renderedText, 'utf8');
+        const boundaries = buildUtf8BoundaryMap(renderedText);
+        const normalizationOffsetMap = tokenizationResult.normalizationOffsetMap || null;
+
+        if (tokenizationResult.normalizationChanged && !normalizationOffsetMap) {
+            clearTokenHighlights(editor);
+            console.warn('[gpt-token-counter-live] Token highlighting skipped because normalization offsets could not be mapped to the original document.');
+            return;
+        }
+
+        let byteCursor = 0;
+        let hasMismatch = false;
 
         for (let i = 0; i < tokens.length; i++) {
             const tokenId = tokens[i];
-            let tokenString;
+            let tokenBytes;
 
             try {
-                const bytes = tokenizerState.encoder.decode_single_token_bytes(tokenId);
-                tokenString = utf8Decoder.decode(bytes);
+                tokenBytes = tokenizerState.encoder.decode_single_token_bytes(tokenId);
             } catch (error) {
-                clearTokenHighlights(editor);
-                return;
+                hasMismatch = true;
+                break;
             }
 
-            if (!tokenString.length) {
+            if (!tokenBytes.length) {
                 continue;
             }
 
-            const foundIndex = sourceText.indexOf(tokenString, searchIndex);
-            if (foundIndex === -1) {
-                clearTokenHighlights(editor);
-                return;
+            const startByte = byteCursor;
+            const endByte = startByte + tokenBytes.length;
+
+            if (endByte > sourceBytes.length) {
+                hasMismatch = true;
+                break;
             }
 
-            const startOffset = baseOffset + foundIndex;
-            const endOffset = startOffset + tokenString.length;
+            const expectedBytes = sourceBytes.subarray(startByte, endByte);
+            if (!Buffer.from(tokenBytes).equals(expectedBytes)) {
+                hasMismatch = true;
+                break;
+            }
+
+            const startUtf16 = resolveUtf16Offset(boundaries, startByte, sourceBytes.length, 'backward');
+            const endUtf16 = resolveUtf16Offset(boundaries, endByte, sourceBytes.length, 'forward');
+
+            if (startUtf16 === null || endUtf16 === null) {
+                hasMismatch = true;
+                break;
+            }
+
+            const mappedStart = normalizationOffsetMap
+                ? resolveOriginalOffsetFromNormalized(normalizationOffsetMap, startUtf16, 'backward')
+                : startUtf16;
+            const mappedEnd = normalizationOffsetMap
+                ? resolveOriginalOffsetFromNormalized(normalizationOffsetMap, endUtf16, 'forward')
+                : endUtf16;
+
+            if (mappedStart === null || mappedEnd === null) {
+                hasMismatch = true;
+                break;
+            }
+
+            const startOffset = baseOffset + mappedStart;
+            const endOffset = baseOffset + mappedEnd;
             const range = new vscode.Range(document.positionAt(startOffset), document.positionAt(endOffset));
 
-            if (i % 2 === 0) {
-                evenRanges.push(range);
-            } else {
-                oddRanges.push(range);
+            if (!range.isEmpty) {
+                if (i % 2 === 0) {
+                    evenRanges.push(range);
+                } else {
+                    oddRanges.push(range);
+                }
             }
 
-            searchIndex = foundIndex + tokenString.length;
+            byteCursor = endByte;
+        }
+
+        if (byteCursor !== sourceBytes.length) {
+            hasMismatch = true;
+        }
+
+        if (hasMismatch) {
+            clearTokenHighlights(editor);
+            console.warn('[gpt-token-counter-live] Partial token highlight render due to unsupported UTF-8 token boundaries.');
+            return;
         }
 
         editor.setDecorations(tokenDecorations.even, evenRanges);
@@ -534,11 +697,16 @@ function activate(context) {
             const processedText = tokenizerState.requiresNormalization ? text.normalize('NFKC') : text;
             try {
                 const encoded = tokenizerState.encoder.encode(processedText, 'all');
+                const normalizationOffsetMap = tokenizerState.requiresNormalization && processedText !== text
+                    ? buildNormalizationOffsetMap(text)
+                    : null;
                 return {
                     tokenCount: encoded.length,
                     tokenizationResult: {
                         tokens: encoded,
-                        normalizationChanged: tokenizerState.requiresNormalization && processedText !== text
+                        normalizationChanged: tokenizerState.requiresNormalization && processedText !== text,
+                        processedText,
+                        normalizationOffsetMap
                     }
                 };
             } catch (error) {
@@ -1037,6 +1205,12 @@ function deactivate() {
 module.exports = {
     activate,
     deactivate,
+    __internal: {
+        buildUtf8BoundaryMap,
+        resolveUtf16Offset,
+        buildNormalizationOffsetMap,
+        resolveOriginalOffsetFromNormalized
+    },
     _test: {
         loadEnabledFilePatterns,
         matchesEnabledFilePatterns,
@@ -1046,4 +1220,4 @@ module.exports = {
             enabledFilePatterns = normalizeEnabledFilePatterns(patterns);
         }
     }
-}
+};
