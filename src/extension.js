@@ -21,6 +21,8 @@ const MODEL_FAMILIES = {
 
 const HF_CACHE_DIR_NAME = 'hf-tokenizers';
 const HF_HUB_BASE_URL = 'https://huggingface.co';
+const HF_SAFE_ID_READABLE_MAX_LENGTH = 96;
+const HF_SAFE_ID_HASH_LENGTH = 12;
 
 const HIGHLIGHT_EVEN_KEY = 'highlightEvenColor';
 const HIGHLIGHT_ODD_KEY = 'highlightOddColor';
@@ -396,8 +398,9 @@ function deriveHfSafeId(modelId) {
         .replace(/\\/g, '/')
         .replace(/\//g, '--')
         .replace(/[^A-Za-z0-9._-]/g, '_');
-    const hash = crypto.createHash('sha256').update(trimmed).digest('hex').slice(0, 12);
-    return `${readable}_${hash}`;
+    const readablePrefix = readable.slice(0, HF_SAFE_ID_READABLE_MAX_LENGTH) || 'model';
+    const hash = crypto.createHash('sha256').update(trimmed).digest('hex').slice(0, HF_SAFE_ID_HASH_LENGTH);
+    return `${readablePrefix}_${hash}`;
 }
 
 function resolveHuggingfaceSource(config) {
@@ -563,41 +566,59 @@ function huggingfaceTokenizerSupportsHighlight(tokenizer) {
 // On any failure during write/fsync/rename the temp file is unlinked so repeated
 // retries don't accumulate orphan `*.tmp.*` files in globalStorage.
 //
-// `fs.writeSync` may return a partial byte count (disk-full, network FS, signal
+// `FileHandle.write` may return a partial byte count (disk-full, network FS, signal
 // interruption), so we loop until every byte lands before fsync+rename. A single
 // raw call would silently truncate the cache file while still reporting success.
-function writeAtomicFileSync(finalPath, data) {
+async function writeAtomicFile(finalPath, data) {
     const tmpPath = `${finalPath}.tmp.${process.pid}.${Date.now()}`;
+    let fileHandle = null;
     try {
         const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data, 'utf8');
-        const fd = fs.openSync(tmpPath, 'w');
+        fileHandle = await fs.promises.open(tmpPath, 'w');
         try {
             let offset = 0;
             while (offset < buffer.length) {
-                const written = fs.writeSync(fd, buffer, offset, buffer.length - offset);
-                if (written <= 0) {
-                    throw new Error(`writeSync reported 0 bytes written at offset ${offset}/${buffer.length}`);
+                const result = await fileHandle.write(buffer, offset, buffer.length - offset, offset);
+                if (result.bytesWritten <= 0) {
+                    throw new Error(`FileHandle.write reported 0 bytes written at offset ${offset}/${buffer.length}`);
                 }
-                offset += written;
+                offset += result.bytesWritten;
             }
-            fs.fsyncSync(fd);
+            await fileHandle.sync();
         } finally {
-            fs.closeSync(fd);
+            await fileHandle.close();
+            fileHandle = null;
         }
-        fs.renameSync(tmpPath, finalPath);
+        await fs.promises.rename(tmpPath, finalPath);
     } catch (error) {
-        removeFileIfExists(tmpPath);
+        if (fileHandle) {
+            try {
+                await fileHandle.close();
+            } catch (_ignored) {
+                // best-effort cleanup below still runs
+            }
+        }
+        await removeFileIfExists(tmpPath);
         throw error;
     }
 }
 
-function removeFileIfExists(filePath) {
+async function removeFileIfExists(filePath) {
     try {
-        if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
-        }
+        await fs.promises.unlink(filePath);
     } catch (_ignored) {
         // best-effort cleanup; leave the stale file rather than crash the extension
+    }
+}
+
+async function readTextFileIfExists(filePath, fallback) {
+    try {
+        return await fs.promises.readFile(filePath, 'utf8');
+    } catch (error) {
+        if (error && error.code === 'ENOENT') {
+            return fallback;
+        }
+        throw error;
     }
 }
 
@@ -878,18 +899,22 @@ function activate(context) {
         };
     }
 
-    function ensureHuggingfaceCacheDir() {
+    function getHuggingfaceCacheDir() {
         const base = context.globalStorageUri && context.globalStorageUri.fsPath;
         if (!base) {
             throw new Error('Extension global storage path is unavailable.');
         }
-        const dir = path.join(base, HF_CACHE_DIR_NAME);
-        fs.mkdirSync(dir, { recursive: true });
+        return path.join(base, HF_CACHE_DIR_NAME);
+    }
+
+    async function ensureHuggingfaceCacheDir() {
+        const dir = getHuggingfaceCacheDir();
+        await fs.promises.mkdir(dir, { recursive: true });
         return dir;
     }
 
-    function getHuggingfaceCacheFilePath(safeId, suffix) {
-        const dir = ensureHuggingfaceCacheDir();
+    async function getHuggingfaceCacheFilePath(safeId, suffix) {
+        const dir = await ensureHuggingfaceCacheDir();
         return path.join(dir, `${safeId}${suffix}`);
     }
 
@@ -904,15 +929,17 @@ function activate(context) {
             if (!path.isAbsolute(filePath)) {
                 throw new Error(`HuggingFace tokenizer path must be absolute, got "${filePath}".`);
             }
-            if (!fs.existsSync(filePath)) {
-                throw new Error(`HuggingFace tokenizer file not found at "${filePath}".`);
+            let tokenizerJson;
+            try {
+                tokenizerJson = await fs.promises.readFile(filePath, 'utf8');
+            } catch (error) {
+                if (error && error.code === 'ENOENT') {
+                    throw new Error(`HuggingFace tokenizer file not found at "${filePath}".`);
+                }
+                throw error;
             }
-            const tokenizerJson = fs.readFileSync(filePath, 'utf8');
             const siblingConfig = path.join(path.dirname(filePath), 'tokenizer_config.json');
-            let tokenizerConfigJson = '{}';
-            if (fs.existsSync(siblingConfig)) {
-                tokenizerConfigJson = fs.readFileSync(siblingConfig, 'utf8');
-            }
+            const tokenizerConfigJson = await readTextFileIfExists(siblingConfig, '{}');
             return {
                 tokenizer: buildHuggingfaceTokenizerFromStrings(tokenizerJson, tokenizerConfigJson),
                 loadToken
@@ -920,24 +947,24 @@ function activate(context) {
         }
 
         if (source.kind === 'remote') {
-            const tokenizerPath = getHuggingfaceCacheFilePath(source.safeId, '.json');
-            const configPath = getHuggingfaceCacheFilePath(source.safeId, '.config.json');
+            const tokenizerPath = await getHuggingfaceCacheFilePath(source.safeId, '.json');
+            const configPath = await getHuggingfaceCacheFilePath(source.safeId, '.config.json');
 
             // Try the cache first. Validate by actually parsing + constructing the
             // tokenizer; if that throws, the cache entry is corrupt (interrupted
             // write, cross-window race, truncated disk) so we wipe it and refetch.
-            if (fs.existsSync(tokenizerPath)) {
-                try {
-                    const cachedTokenizerJson = fs.readFileSync(tokenizerPath, 'utf8');
-                    const cachedConfigJson = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '{}';
-                    return {
-                        tokenizer: buildHuggingfaceTokenizerFromStrings(cachedTokenizerJson, cachedConfigJson),
-                        loadToken
-                    };
-                } catch (cacheError) {
+            try {
+                const cachedTokenizerJson = await fs.promises.readFile(tokenizerPath, 'utf8');
+                const cachedConfigJson = await readTextFileIfExists(configPath, '{}');
+                return {
+                    tokenizer: buildHuggingfaceTokenizerFromStrings(cachedTokenizerJson, cachedConfigJson),
+                    loadToken
+                };
+            } catch (cacheError) {
+                if (!cacheError || cacheError.code !== 'ENOENT') {
                     console.warn(`[gpt-token-counter-live] Discarding corrupt HuggingFace cache for "${source.modelId}" and refetching: ${cacheError.message}`);
-                    removeFileIfExists(tokenizerPath);
-                    removeFileIfExists(configPath);
+                    await removeFileIfExists(tokenizerPath);
+                    await removeFileIfExists(configPath);
                 }
             }
 
@@ -948,8 +975,8 @@ function activate(context) {
             const tokenizer = buildHuggingfaceTokenizerFromStrings(fetched.tokenizerJson, fetched.tokenizerConfigJson);
 
             try {
-                writeAtomicFileSync(tokenizerPath, fetched.tokenizerJson);
-                writeAtomicFileSync(configPath, fetched.tokenizerConfigJson);
+                await writeAtomicFile(tokenizerPath, fetched.tokenizerJson);
+                await writeAtomicFile(configPath, fetched.tokenizerConfigJson);
             } catch (writeError) {
                 console.warn(`[gpt-token-counter-live] Could not cache tokenizer for "${source.modelId}": ${writeError.message}`);
             }
@@ -969,6 +996,13 @@ function activate(context) {
             return;
         }
         if (tokenizerState.hfStatus !== 'error') {
+            return;
+        }
+        if (tokenizerState.hfErrorLabel === '<no-config>') {
+            return;
+        }
+        const source = resolveHuggingfaceSource(readHuggingfaceConfigFromVscode());
+        if (source.kind === 'none') {
             return;
         }
         if (Date.now() - (tokenizerState.hfLastAttemptAt || 0) < HF_RETRY_COOLDOWN_MS) {
@@ -1450,7 +1484,7 @@ function activate(context) {
     // we fetch `resolve/main` (mutable) and cache indefinitely, so an upstream tokenizer
     // change would otherwise silently drift token counts. Users can invoke this from the
     // Command Palette to force a re-fetch.
-    const refreshHuggingfaceCache = vscode.commands.registerCommand('gpt-token-counter-live.refreshHuggingfaceCache', () => {
+    const refreshHuggingfaceCache = vscode.commands.registerCommand('gpt-token-counter-live.refreshHuggingfaceCache', async () => {
         if (currentProvider !== 'huggingface') {
             vscode.window.showInformationMessage('Switch to the HuggingFace model family before refreshing its tokenizer cache.');
             return;
@@ -1458,8 +1492,8 @@ function activate(context) {
         const hfConfig = readHuggingfaceConfigFromVscode();
         const source = resolveHuggingfaceSource(hfConfig);
         if (source.kind === 'remote') {
-            removeFileIfExists(getHuggingfaceCacheFilePath(source.safeId, '.json'));
-            removeFileIfExists(getHuggingfaceCacheFilePath(source.safeId, '.config.json'));
+            await removeFileIfExists(await getHuggingfaceCacheFilePath(source.safeId, '.json'));
+            await removeFileIfExists(await getHuggingfaceCacheFilePath(source.safeId, '.config.json'));
             vscode.window.showInformationMessage(`HuggingFace tokenizer cache cleared for "${source.modelId}". Refetching...`);
         } else if (source.kind === 'local') {
             vscode.window.showInformationMessage(`Reloading HuggingFace tokenizer from "${source.path}"...`);

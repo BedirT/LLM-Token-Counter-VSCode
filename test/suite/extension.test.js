@@ -195,6 +195,13 @@ suite('HuggingFace Tokenizer', () => {
 		assert.match(deriveHfSafeId('bedirt/model_v1.0'), /_[0-9a-f]{12}$/);
 	});
 
+	test('deriveHfSafeId truncates very long readable prefixes below filename limits', () => {
+		const safeId = deriveHfSafeId(`org/${'very-long-model-name-'.repeat(20)}`);
+		assert.match(safeId, /_[0-9a-f]{12}$/);
+		assert.ok(safeId.startsWith('org--very-long-model-name-'));
+		assert.ok(`${safeId}.config.json`.length < 255, 'cache filename should stay under common filesystem limits');
+	});
+
 	test('deriveHfSafeId is injective for IDs that would share a readable prefix', () => {
 		// Both of these previously collapsed to `a--b--c` and clobbered each other in the
 		// cache. The hash suffix must keep them distinct.
@@ -338,37 +345,82 @@ suite('HuggingFace Tokenizer', () => {
 		let tokenizer = null;
 		let fetchFailed = false;
 
-		suiteSetup(async function () {
-			try {
-				fs.mkdirSync(tmpDir, { recursive: true });
-				if (!fs.existsSync(tokenizerPath)) {
-					if (typeof fetch !== 'function') {
-						fetchFailed = true;
-						return;
+		const removeFixtureFiles = () => {
+			for (const filePath of [tokenizerPath, tokenizerConfigPath]) {
+				try {
+					fs.unlinkSync(filePath);
+				} catch (error) {
+					if (!error || error.code !== 'ENOENT') {
+						throw error;
 					}
-					const baseUrl = 'https://huggingface.co/Xenova/gpt-4/resolve/main';
-					// Each fetch gets its own timeout signal so a stalled proxy aborts
-					// cleanly and the suite skips (via the outer try/catch) instead of
-					// hanging until Mocha's 30s suite timeout fires a hard failure.
-					const [tResp, cResp] = await Promise.all([
-						fetch(`${baseUrl}/tokenizer.json`, { signal: AbortSignal.timeout(15000) }),
-						fetch(`${baseUrl}/tokenizer_config.json`, { signal: AbortSignal.timeout(15000) })
-					]);
-					if (!tResp.ok || !cResp.ok) {
-						fetchFailed = true;
-						return;
-					}
-					fs.writeFileSync(tokenizerPath, await tResp.text());
-					fs.writeFileSync(tokenizerConfigPath, await cResp.text());
 				}
-				const tokenizerJson = fs.readFileSync(tokenizerPath, 'utf8');
-				const tokenizerConfigJson = fs.existsSync(tokenizerConfigPath)
-					? fs.readFileSync(tokenizerConfigPath, 'utf8')
-					: '{}';
-				tokenizer = buildHuggingfaceTokenizerFromStrings(tokenizerJson, tokenizerConfigJson);
+			}
+		};
+
+		const loadFixtureFromDisk = () => {
+			const tokenizerJson = fs.readFileSync(tokenizerPath, 'utf8');
+			const tokenizerConfigJson = fs.existsSync(tokenizerConfigPath)
+				? fs.readFileSync(tokenizerConfigPath, 'utf8')
+				: '{}';
+			return buildHuggingfaceTokenizerFromStrings(tokenizerJson, tokenizerConfigJson);
+		};
+
+		const downloadFixture = async () => {
+			if (typeof fetch !== 'function') {
+				return false;
+			}
+			const baseUrl = 'https://huggingface.co/Xenova/gpt-4/resolve/main';
+			// Each fetch gets its own timeout signal so a stalled proxy aborts
+			// cleanly and the suite skips instead of hanging until Mocha's
+			// 30s suite timeout fires a hard failure.
+			let tResp;
+			let cResp;
+			try {
+				[tResp, cResp] = await Promise.all([
+					fetch(`${baseUrl}/tokenizer.json`, { signal: AbortSignal.timeout(15000) }),
+					fetch(`${baseUrl}/tokenizer_config.json`, { signal: AbortSignal.timeout(15000) })
+				]);
 			} catch (error) {
+				console.warn('[hf-test] Could not fetch real tokenizer fixture:', error.message);
+				return false;
+			}
+			if (!tResp.ok || !cResp.ok) {
+				console.warn(`[hf-test] Could not fetch real tokenizer fixture: tokenizer=${tResp.status}, config=${cResp.status}`);
+				return false;
+			}
+
+			let tokenizerJson;
+			let tokenizerConfigJson;
+			try {
+				tokenizerJson = await tResp.text();
+				tokenizerConfigJson = await cResp.text();
+			} catch (error) {
+				console.warn('[hf-test] Could not read real tokenizer fixture response:', error.message);
+				return false;
+			}
+
+			const downloadedTokenizer = buildHuggingfaceTokenizerFromStrings(tokenizerJson, tokenizerConfigJson);
+			fs.writeFileSync(tokenizerPath, tokenizerJson);
+			fs.writeFileSync(tokenizerConfigPath, tokenizerConfigJson);
+			tokenizer = downloadedTokenizer;
+			return true;
+		};
+
+		suiteSetup(async function () {
+			fs.mkdirSync(tmpDir, { recursive: true });
+			if (fs.existsSync(tokenizerPath)) {
+				try {
+					tokenizer = loadFixtureFromDisk();
+					return;
+				} catch (error) {
+					console.warn('[hf-test] Discarding corrupt real tokenizer fixture and re-downloading:', error.message);
+					removeFixtureFiles();
+				}
+			}
+
+			const downloaded = await downloadFixture();
+			if (!downloaded) {
 				fetchFailed = true;
-				console.warn('[hf-test] Could not prepare real tokenizer fixture:', error.message);
 			}
 		});
 
