@@ -2,7 +2,7 @@
   "name": "gpt-token-counter-live",
   "displayName": "Live LLM Token Counter",
   "description": "Live Token Counter for Language Models",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"
@@ -16,6 +16,7 @@
     "onCommand:gpt-token-counter-live.changeModel",
     "onCommand:gpt-token-counter-live.toggleHighlight",
     "onCommand:gpt-token-counter-live.configureHighlights",
+    "onCommand:gpt-token-counter-live.refreshHuggingfaceCache",
     "onLanguage:plaintext",
     "onLanguage:javascript",
     "onLanguage:typescript"
@@ -26,7 +27,7 @@
     "theme": "dark"
   },
   "engines": {
-    "vscode": "^1.78.0"
+    "vscode": "^1.82.0"
   },
   "main": "./src/extension.js",
   "scripts": {
@@ -56,6 +57,7 @@
   },
   "dependencies": {
     "@anthropic-ai/tokenizer": "^0.0.4",
+    "@huggingface/tokenizers": "^0.1.3",
     "minimatch": "^9.0.0",
     "tiktoken": "^1.0.22"
   },
@@ -76,6 +78,10 @@
       {
         "command": "gpt-token-counter-live.configureHighlights",
         "title": "Configure Token Highlight Colors"
+      },
+      {
+        "command": "gpt-token-counter-live.refreshHuggingfaceCache",
+        "title": "Refresh HuggingFace Tokenizer Cache"
       }
     ],
     "configuration": {
@@ -86,7 +92,8 @@
           "enum": [
             "openai",
             "anthropic",
-            "gemini"
+            "gemini",
+            "huggingface"
           ],
           "default": "openai",
           "markdownDescription": "Model family selected by default when the extension activates."
@@ -103,6 +110,18 @@
           },
           "default": [],
           "markdownDescription": "Glob patterns for files where the status bar should be shown (e.g., `[\"*.md\", \"*.mdc\"]`). Empty array shows for all files."
+        },
+        "gpt-token-counter-live.huggingfaceModelId": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "HuggingFace repo ID (e.g. `Qwen/Qwen2.5-7B-Instruct`, `meta-llama/Llama-3-8B`) to load a tokenizer for when the HuggingFace family is active. The extension fetches `tokenizer.json` + `tokenizer_config.json` from `https://huggingface.co/{id}/resolve/main/` once and caches them on disk. Leave empty if you are pointing at a local file with `huggingfaceTokenizerPath`.\n\n*Scope: machine-only. Cannot be set from workspace settings so a repository cannot trigger a remote fetch on your machine without your consent.*"
+        },
+        "gpt-token-counter-live.huggingfaceTokenizerPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Absolute path to a local HuggingFace `tokenizer.json` file. When set, this overrides `huggingfaceModelId`. If a sibling `tokenizer_config.json` exists next to the file it is loaded as well; otherwise the tokenizer loads with default config.\n\n*Scope: machine-only. Cannot be set from workspace settings so a repository cannot direct the extension at arbitrary files on your disk.*"
         }
       }
     }

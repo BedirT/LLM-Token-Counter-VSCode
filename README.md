@@ -1,14 +1,14 @@
 <div align="center">
     <h1>Live LLM Token Counter</h1>
     <img src="images/icon.png" alt="Logo" width="300" height="300"><br>
-    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.4.0-blue?style=flat&logo=visualstudiocode" alt="VSCode Version"></a>
-    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="OpenVSX Version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.4.0%20-%20%23bb3ec2?style=flat"></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.5.0-blue?style=flat&logo=visualstudiocode" alt="VSCode Version"></a>
+    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="OpenVSX Version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.5.0%20-%20%23bb3ec2?style=flat"></a>
     <br><br>
 </div>
 
-The "gpt-token-counter-live" is a Visual Studio Code extension that displays the token count of selected text or the entire open document in the status bar. The token count is determined per model family using: [GPT via tiktoken](https://www.npmjs.com/package/tiktoken), [Claude via Anthropic's tokenizer](https://github.com/anthropics/anthropic-tokenizer-typescript), and Gemini via a local approximation.
+The "gpt-token-counter-live" is a Visual Studio Code extension that displays the token count of selected text or the entire open document in the status bar. The token count is determined per model family using: [GPT via tiktoken](https://www.npmjs.com/package/tiktoken), [Claude via Anthropic's tokenizer](https://github.com/anthropics/anthropic-tokenizer-typescript), Gemini via a local approximation, and any HuggingFace tokenizer via [@huggingface/tokenizers](https://www.npmjs.com/package/@huggingface/tokenizers) (Qwen, Llama, Mistral, etc.).
 
-**NEW in v1.4.0:** Now with **visual token highlighting** overlays! See exactly where token boundaries are as you type, with customizable colors and smart text contrast.
+**NEW in v1.5.0:** Count and highlight tokens for **any HuggingFace tokenizer** (Qwen, Llama, Mistral, and more), loaded from the Hub or a local `tokenizer.json`. Plus **file pattern filtering** to scope the counter to specific file types.
 
 This tool is built to get a speedy token counting result right on VS Code while you are working on prompting files. I personally needed a lot while working on many LLM projects, so I decided to make one for myself. I hope this helps you too!
 
@@ -31,9 +31,10 @@ Click the status bar to **switch between model families**: GPT (OpenAI), Claude 
 - **GPT (OpenAI):** Uses tiktoken `encoding_for_model('gpt-5')` with fallbacks to `o200k_base` → `cl100k_base` for accurate token counting across all GPT models.
 - **Claude (Anthropic):** Uses Anthropic's official tokenizer for precise token boundaries with full highlighting support.
 - **Gemini (Google AI):** Approximates tokens using GPT encodings or ~4 chars/token fallback (highlighting not available).
+- **HuggingFace:** Loads a `tokenizer.json` from the Hub (or a local file) and reuses it for live counts. Byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.) support highlighting; SentencePiece tokenizers that alter whitespace fall back to counting only.
 
 ### Visual Token Highlighting
-**See your tokens in real-time** with alternating color bands that show exactly where each token begins and ends. Available for GPT and Claude models.
+**See your tokens in real-time** with alternating color bands that show exactly where each token begins and ends. Available for GPT, Claude, and HuggingFace byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.).
 
 <div align="center">
     <img src="images/highlight_on_off.gif" alt="Token highlighting toggle" width="800">
@@ -93,7 +94,7 @@ This extension contributes the following settings:
 
 ### Model & Display Settings
 - **`gpt-token-counter-live.defaultModelFamily`**: Choose which model family activates by default when you open VS Code.
-  - Options: `openai`, `anthropic`, or `gemini`
+  - Options: `openai`, `anthropic`, `gemini`, or `huggingface`
   - Default: `openai`
 
 - **`gpt-token-counter-live.statusBarDisplayTemplate`**: Customize how token information appears in the status bar.
@@ -103,6 +104,20 @@ This extension contributes the following settings:
 - **`gpt-token-counter-live.enabledFilePatterns`**: Glob patterns for files where the status bar should be shown.
   - Default: `[]` (empty array shows for all files)
   - Example: `["*.md", "*.mdc"]` shows only for markdown files
+
+### HuggingFace Tokenizers
+
+Select `HuggingFace (huggingface)` in the model family picker, then point the extension at a tokenizer with either of the settings below. The first load fetches `tokenizer.json` from the Hub and caches it under the extension's global storage directory, so subsequent launches are offline-friendly.
+
+- **`gpt-token-counter-live.huggingfaceModelId`**: HuggingFace repo ID (e.g. `Qwen/Qwen2.5-7B-Instruct`, `meta-llama/Llama-3-8B`, `mistralai/Mistral-7B-Instruct-v0.3`). The extension fetches `https://huggingface.co/{id}/resolve/main/tokenizer.json` plus `tokenizer_config.json` and caches them on disk.
+- **`gpt-token-counter-live.huggingfaceTokenizerPath`**: Absolute path to a local `tokenizer.json` file. When set, it overrides `huggingfaceModelId`. A sibling `tokenizer_config.json` will be picked up automatically if present.
+
+**What works and what doesn't:**
+
+- Byte-level BPE tokenizers (Qwen, Llama, Mistral, most GPT-style tokenizers on the Hub) give **precise token counts and highlighting**.
+- SentencePiece / Unigram tokenizers that strip or transform whitespace (T5, some BERT variants) still give precise counts, but highlighting is automatically disabled. Decoding an id sequence back to text doesn't produce an identical string, so offsets can't be attributed reliably. You'll see token counts but no color overlays.
+- **Gated or private repositories** cannot be fetched without auth. The first load will surface the raw HTTP status in a VS Code error notification (typically `401` or `403`); download `tokenizer.json` manually and point `huggingfaceTokenizerPath` at it.
+- **Missing repositories / offline first-load** show the same error notification and fall back to a rough `~4 chars/token` approximation until the tokenizer resolves.
 
 ### Highlighting Configuration
 Token highlight colors are stored in your VS Code global state (synced across devices if you have Settings Sync enabled). To customize them select `Configure Token Highlight Colors` option from the Command Palette.
@@ -115,9 +130,17 @@ There are currently no known issues. If you encounter a problem, please report i
 
 ## Release Notes
 
-### 1.5.0 - File Pattern Filtering
+### 1.5.0 - HuggingFace Tokenizers & File Pattern Filtering
 
+**New features:**
+
+- **HuggingFace tokenizer family**: load any `tokenizer.json` from the Hub (first launch fetches + caches) or a local file. Byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.) support highlighting; SentencePiece tokenizers that transform whitespace count tokens but skip highlights. Configure via `huggingfaceModelId` or `huggingfaceTokenizerPath`.
 - **New setting `enabledFilePatterns`**: Show status bar only for files matching specific glob patterns (e.g., `["*.md", "*.mdc"]`). Empty array shows for all files.
+
+**Fixes:**
+
+- Token highlighting stays aligned around multi-byte UTF-8 characters (emoji, CJK). The renderer now matches raw bytes against the source instead of decoded token strings, so a token that splits a multi-byte character still lands on the right boundary.
+- Claude highlighting works on documents containing characters that NFKC-normalize to a different form (e.g., full-width `（）` becoming ASCII `()`). Token ranges are reprojected from the normalized tokenization back onto the original text.
 
 ### 1.4.0 - Token Highlighting & Customization
 

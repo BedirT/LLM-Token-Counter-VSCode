@@ -5,7 +5,15 @@ All notable changes to the "gpt-token-counter" extension will be documented in t
 ## [1.5.0]
 
 ### Added
+- HuggingFace tokenizer family: load any `tokenizer.json` from the Hub (first launch fetches + caches) or a local file.
+  - New settings: `huggingfaceModelId` and `huggingfaceTokenizerPath`.
+  - Byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.) support highlighting via a decode-based offset reconstruction; SentencePiece tokenizers that transform whitespace still count tokens but skip highlights.
+  - `huggingface` added to the `defaultModelFamily` enum and to the Change Model Family quick pick.
 - New setting `enabledFilePatterns` to show status bar only for files matching specific glob patterns (e.g., `["*.md", "*.mdc"]`).
+
+### Fixed
+- Token highlighting no longer misaligns around multi-byte UTF-8 characters (emoji, CJK). The highlight renderer switched from matching decoded token strings to matching raw UTF-8 bytes against the source, so a token that spans or splits a multi-byte character still lands on the right boundary.
+- Claude token highlighting now works on documents containing characters that are rewritten by NFKC normalization (e.g., full-width `（）` becoming ASCII `()`). A per-grapheme offset map reprojects token ranges from the normalized tokenization back onto the original text.
 
 ## [1.3.0]
 
