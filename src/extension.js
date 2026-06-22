@@ -653,7 +653,7 @@ function activate(context) {
 
     const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     statusBar.command = 'gpt-token-counter-live.changeModel';
-    statusBar.name = 'Tokenizer Lens';
+    statusBar.name = 'LLM Token Counter';
 
     const highlightStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
     highlightStatusBar.command = 'gpt-token-counter-live.toggleHighlight';
@@ -1407,7 +1407,7 @@ function activate(context) {
             { kind: vscode.QuickPickItemKind.Separator },
             {
                 label: '$(gear) Extension Settings',
-                description: 'Open settings for Tokenizer Lens',
+                description: 'Open settings for Live LLM Token Counter',
                 command: 'openSettings'
             },
             {

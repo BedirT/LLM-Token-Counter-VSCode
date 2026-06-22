@@ -1,14 +1,18 @@
 # Change Log
 
-All notable changes to the "Tokenizer Lens" extension will be documented in this file.
+All notable changes to the "gpt-token-counter" extension will be documented in this file.
+
+## [1.5.2]
+
+### Changed
+- Restored the original handmade icon and visible extension name.
+- Kept the corrected Marketplace support link to the project's own GitHub issue tracker.
+- Clarified the listing description and README introduction to emphasize tokenizer families, token-boundary highlighting, HuggingFace support, file filters, and local-first behavior.
 
 ## [1.5.1]
 
 ### Changed
-- Renamed the visible Marketplace listing to "Tokenizer Lens" while keeping the existing extension identifier and settings namespace for user compatibility.
-- Replaced the Marketplace icon and gallery color with original Tokenizer Lens branding.
-- Updated the Marketplace support link to the project's own GitHub issue tracker.
-- Rewrote the listing description and README introduction to emphasize tokenizer inspection, token boundaries, HuggingFace support, file filters, and local-first behavior.
+- Superseded by 1.5.2.
 
 ## [1.5.0]
 

@@ -1,8 +1,8 @@
 {
   "name": "gpt-token-counter-live",
-  "displayName": "Tokenizer Lens",
-  "description": "Inspect live LLM token counts, token boundaries, and tokenizer-specific behavior in VS Code.",
-  "version": "1.5.1",
+  "displayName": "Live LLM Token Counter",
+  "description": "Live token counts and token-boundary highlighting for GPT, Claude, Gemini, and HuggingFace tokenizers.",
+  "version": "1.5.2",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"
@@ -23,7 +23,7 @@
   ],
   "icon": "images/icon.png",
   "galleryBanner": {
-    "color": "#4f46e5",
+    "color": "#00c864",
     "theme": "dark"
   },
   "engines": {
@@ -85,7 +85,7 @@
       }
     ],
     "configuration": {
-      "title": "Tokenizer Lens",
+      "title": "Live LLM Token Counter",
       "properties": {
         "gpt-token-counter-live.defaultModelFamily": {
           "type": "string",

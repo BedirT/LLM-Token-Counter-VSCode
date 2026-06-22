@@ -1,23 +1,23 @@
 <div align="center">
-    <h1>Tokenizer Lens</h1>
-    <img src="images/icon.png" alt="Tokenizer Lens icon" width="300" height="300"><br>
-    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.5.1-blue?style=flat&logo=visualstudiocode" alt="VS Code Marketplace version"></a>
-    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="Open VSX version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.5.1%20-%20%23bb3ec2?style=flat"></a>
+    <h1>Live LLM Token Counter</h1>
+    <img src="images/icon.png" alt="Live LLM Token Counter logo" width="300" height="300"><br>
+    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.5.2-blue?style=flat&logo=visualstudiocode" alt="VS Code Marketplace version"></a>
+    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="Open VSX version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.5.2%20-%20%23bb3ec2?style=flat"></a>
     <br><br>
 </div>
 
-Tokenizer Lens is a Visual Studio Code extension for prompt writers, AI app builders, and model evaluators who need local token feedback while editing. It shows live token counts for a selection or the whole document, lets you switch tokenizer families from the status bar, and can paint token boundaries directly over the editor text.
+Live LLM Token Counter is a Visual Studio Code extension for prompt writers, AI app builders, and model evaluators who need local token feedback while editing. It shows live token counts for a selection or the whole document, lets you switch tokenizer families from the status bar, and can paint token boundaries directly over the editor text.
 
-The extension identifier and settings namespace remain `gpt-token-counter-live` so existing users keep their installs and settings. The visible Marketplace name is now **Tokenizer Lens**.
+The extension identifier and settings namespace are `gpt-token-counter-live` so existing users keep their installs and settings.
 
 Tokenizer support is provided by [tiktoken](https://www.npmjs.com/package/tiktoken) for GPT/OpenAI models, [Anthropic's tokenizer](https://github.com/anthropics/anthropic-tokenizer-typescript) for Claude, a local Gemini approximation, and [@huggingface/tokenizers](https://www.npmjs.com/package/@huggingface/tokenizers) for HuggingFace `tokenizer.json` files such as Qwen, Llama, and Mistral.
 
-**NEW in v1.5.1:** Refreshed Marketplace identity with original Tokenizer Lens branding, clearer listing copy, and the correct project support link.
+**NEW in v1.5.2:** Restored the original handmade logo and visible extension name while keeping the corrected project support link and clearer listing copy.
 
 **NEW in v1.5.0:** Count and highlight tokens for **any HuggingFace tokenizer** (Qwen, Llama, Mistral, and more), loaded from the Hub or a local `tokenizer.json`. Plus **file pattern filtering** to scope the counter to specific file types.
 
 <div align="center">
-    <img src="images/hero.gif" alt="Tokenizer Lens live token counts in action" width="800">
+    <img src="images/hero.gif" alt="Live LLM Token Counter in action" width="800">
 </div>
 
 ## Features
@@ -134,14 +134,17 @@ There are currently no known issues. If you encounter a problem, please report i
 
 ## Release Notes
 
-### 1.5.1 - Tokenizer Lens Branding & Marketplace Metadata
+### 1.5.2 - Restore Original Branding & Fix Marketplace Metadata
 
 **Changed:**
 
-- Renamed the visible listing to **Tokenizer Lens** while preserving the existing extension identifier and settings namespace.
-- Replaced the Marketplace icon with original Tokenizer Lens artwork and refreshed the gallery color.
+- Restored the original handmade icon and visible extension name.
 - Updated support metadata to the project's own issue tracker.
-- Rewrote the listing introduction to better describe tokenizer inspection, local token counting, token highlighting, HuggingFace tokenizer loading, and file filters.
+- Rewrote the listing introduction to better describe local token counting, token highlighting, HuggingFace tokenizer loading, and file filters.
+
+### 1.5.1
+
+Superseded by 1.5.2.
 
 ### 1.5.0 - HuggingFace Tokenizers & File Pattern Filtering
 
