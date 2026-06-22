@@ -1,8 +1,8 @@
 {
   "name": "gpt-token-counter-live",
-  "displayName": "Live LLM Token Counter",
-  "description": "Live Token Counter for Language Models",
-  "version": "1.5.0",
+  "displayName": "Tokenizer Lens",
+  "description": "Inspect live LLM token counts, token boundaries, and tokenizer-specific behavior in VS Code.",
+  "version": "1.5.1",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"
@@ -23,7 +23,7 @@
   ],
   "icon": "images/icon.png",
   "galleryBanner": {
-    "color": "#00c864",
+    "color": "#4f46e5",
     "theme": "dark"
   },
   "engines": {
@@ -48,7 +48,7 @@
   },
   "license": "SEE LICENSE IN LICENSE.txt",
   "bugs": {
-    "url": "https://github.com/microsoft/vscode-wordcount/issues",
+    "url": "https://github.com/BedirT/LLM-Token-Counter-VSCode/issues",
     "email": "bedirtpkn@gmail.com"
   },
   "repository": {
@@ -85,7 +85,7 @@
       }
     ],
     "configuration": {
-      "title": "Live LLM Token Counter",
+      "title": "Tokenizer Lens",
       "properties": {
         "gpt-token-counter-live.defaultModelFamily": {
           "type": "string",
@@ -134,9 +134,11 @@
     "Gemini",
     "Google AI",
     "Token",
+    "Tokenizer",
     "Counter",
     "LLM",
-    "Language Model"
+    "Language Model",
+    "Prompt Engineering"
   ],
   "homepage": "https://github.com/BedirT/LLM-Token-Counter-VSCode/blob/main/README.md"
 }

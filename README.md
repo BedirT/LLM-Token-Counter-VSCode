@@ -1,28 +1,32 @@
 <div align="center">
-    <h1>Live LLM Token Counter</h1>
-    <img src="images/icon.png" alt="Logo" width="300" height="300"><br>
-    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.5.0-blue?style=flat&logo=visualstudiocode" alt="VSCode Version"></a>
-    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="OpenVSX Version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.5.0%20-%20%23bb3ec2?style=flat"></a>
+    <h1>Tokenizer Lens</h1>
+    <img src="images/icon.png" alt="Tokenizer Lens icon" width="300" height="300"><br>
+    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.5.1-blue?style=flat&logo=visualstudiocode" alt="VS Code Marketplace version"></a>
+    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="Open VSX version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.5.1%20-%20%23bb3ec2?style=flat"></a>
     <br><br>
 </div>
 
-The "gpt-token-counter-live" is a Visual Studio Code extension that displays the token count of selected text or the entire open document in the status bar. The token count is determined per model family using: [GPT via tiktoken](https://www.npmjs.com/package/tiktoken), [Claude via Anthropic's tokenizer](https://github.com/anthropics/anthropic-tokenizer-typescript), Gemini via a local approximation, and any HuggingFace tokenizer via [@huggingface/tokenizers](https://www.npmjs.com/package/@huggingface/tokenizers) (Qwen, Llama, Mistral, etc.).
+Tokenizer Lens is a Visual Studio Code extension for prompt writers, AI app builders, and model evaluators who need local token feedback while editing. It shows live token counts for a selection or the whole document, lets you switch tokenizer families from the status bar, and can paint token boundaries directly over the editor text.
+
+The extension identifier and settings namespace remain `gpt-token-counter-live` so existing users keep their installs and settings. The visible Marketplace name is now **Tokenizer Lens**.
+
+Tokenizer support is provided by [tiktoken](https://www.npmjs.com/package/tiktoken) for GPT/OpenAI models, [Anthropic's tokenizer](https://github.com/anthropics/anthropic-tokenizer-typescript) for Claude, a local Gemini approximation, and [@huggingface/tokenizers](https://www.npmjs.com/package/@huggingface/tokenizers) for HuggingFace `tokenizer.json` files such as Qwen, Llama, and Mistral.
+
+**NEW in v1.5.1:** Refreshed Marketplace identity with original Tokenizer Lens branding, clearer listing copy, and the correct project support link.
 
 **NEW in v1.5.0:** Count and highlight tokens for **any HuggingFace tokenizer** (Qwen, Llama, Mistral, and more), loaded from the Hub or a local `tokenizer.json`. Plus **file pattern filtering** to scope the counter to specific file types.
 
-This tool is built to get a speedy token counting result right on VS Code while you are working on prompting files. I personally needed a lot while working on many LLM projects, so I decided to make one for myself. I hope this helps you too!
-
 <div align="center">
-    <img src="images/hero.gif" alt="Live LLM Token Counter in action" width="800">
+    <img src="images/hero.gif" alt="Tokenizer Lens live token counts in action" width="800">
 </div>
 
 ## Features
 
 ### Real-Time Token Counting
-**Live token counting** for the current selection or entire document, displayed directly in the status bar. Counts update automatically as you type or change your selection.
+Live token counting for the current selection or entire document, displayed directly in the status bar. Counts update automatically as you type or change your selection.
 
 ### Multi-Model Family Support
-Click the status bar to **switch between model families**: GPT (OpenAI), Claude (Anthropic), or Gemini (Google AI).
+Click the status bar to switch between model families: GPT (OpenAI), Claude (Anthropic), Gemini (Google AI), or HuggingFace.
 
 <div align="center">
     <img src="images/model_picker.gif" alt="Model family selection" width="800">
@@ -34,17 +38,17 @@ Click the status bar to **switch between model families**: GPT (OpenAI), Claude 
 - **HuggingFace:** Loads a `tokenizer.json` from the Hub (or a local file) and reuses it for live counts. Byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.) support highlighting; SentencePiece tokenizers that alter whitespace fall back to counting only.
 
 ### Visual Token Highlighting
-**See your tokens in real-time** with alternating color bands that show exactly where each token begins and ends. Available for GPT, Claude, and HuggingFace byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.).
+See your tokens in real-time with alternating color bands that show exactly where each token begins and ends. Available for GPT, Claude, and HuggingFace byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.).
 
 <div align="center">
     <img src="images/highlight_on_off.gif" alt="Token highlighting toggle" width="800">
 </div>
 
 **Key features:**
-- **Toggle on/off:** Click the palette icon in the status bar to enable/disable highlighting
-- **Smart text contrast:** Foreground text color automatically adapts to your highlight colors for optimal readability
-- **Customizable colors:** Choose your own colors with full alpha/transparency support
-- **Editor-aware:** Only highlights in text editors; Output/Debug panes remain clean
+- **Toggle on/off:** Click the palette icon in the status bar to enable or disable highlighting.
+- **Smart text contrast:** Foreground text color automatically adapts to your highlight colors for readability.
+- **Customizable colors:** Choose your own colors with alpha/transparency support.
+- **Editor-aware:** Only highlights in text editors; Output and Debug panes remain clean.
 
 ### Customizable Highlight Colors
 Open the **Command Palette** and run `Configure Token Highlight Colors` to access a dedicated color configurator.
@@ -129,6 +133,15 @@ Token highlight colors are stored in your VS Code global state (synced across de
 There are currently no known issues. If you encounter a problem, please report it on the [issue tracker](https://github.com/BedirT/LLM-Token-Counter-VSCode/issues).
 
 ## Release Notes
+
+### 1.5.1 - Tokenizer Lens Branding & Marketplace Metadata
+
+**Changed:**
+
+- Renamed the visible listing to **Tokenizer Lens** while preserving the existing extension identifier and settings namespace.
+- Replaced the Marketplace icon with original Tokenizer Lens artwork and refreshed the gallery color.
+- Updated support metadata to the project's own issue tracker.
+- Rewrote the listing introduction to better describe tokenizer inspection, local token counting, token highlighting, HuggingFace tokenizer loading, and file filters.
 
 ### 1.5.0 - HuggingFace Tokenizers & File Pattern Filtering
 
