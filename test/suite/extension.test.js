@@ -83,6 +83,57 @@ suite('Extension Test Suite', () => {
 	});
 });
 
+suite('Highlight Palette', () => {
+	const {
+		sanitizeHighlightPalette,
+		resolveHighlightPalette,
+		getHighlightColorIndex,
+		hasTransparentAlpha,
+		getDefaultHighlightColors
+	} = extension._test;
+
+	test('default palette contains multiple distinct colors', () => {
+		const colors = getDefaultHighlightColors();
+		assert.ok(colors.length > 2);
+		assert.strictEqual(new Set(colors).size, colors.length);
+	});
+
+	test('sanitizeHighlightPalette normalizes valid colors and drops invalid entries', () => {
+		assert.deepStrictEqual(
+			sanitizeHighlightPalette([' #abcdef ', 'nope', '#12345678', null], []),
+			['#ABCDEF', '#12345678']
+		);
+	});
+
+	test('resolveHighlightPalette prefers a saved multi-color palette', () => {
+		assert.deepStrictEqual(
+			resolveHighlightPalette(['#112233', '#445566', '#778899'], '#AAAAAA', '#BBBBBB'),
+			['#112233', '#445566', '#778899']
+		);
+	});
+
+	test('resolveHighlightPalette migrates legacy even and odd colors', () => {
+		assert.deepStrictEqual(
+			resolveHighlightPalette(undefined, '#abcdef', '#12345678'),
+			['#ABCDEF', '#12345678']
+		);
+	});
+
+	test('highlight color index cycles through the full palette', () => {
+		assert.deepStrictEqual(
+			Array.from({ length: 10 }, (_, index) => getHighlightColorIndex(index, 4)),
+			[0, 1, 2, 3, 0, 1, 2, 3, 0, 1]
+		);
+	});
+
+	test('transparent alpha is detected without treating opaque 8-digit colors as transparent', () => {
+		assert.strictEqual(hasTransparentAlpha('#12345680'), true);
+		assert.strictEqual(hasTransparentAlpha('#123456FE'), true);
+		assert.strictEqual(hasTransparentAlpha('#123456FF'), false);
+		assert.strictEqual(hasTransparentAlpha('#123456'), false);
+	});
+});
+
 suite('File Pattern Matching', () => {
 	const {
 		matchesFilePatterns,
