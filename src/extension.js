@@ -17,7 +17,7 @@ const DEFAULT_HIGHLIGHT_COLORS = [
     DEFAULT_EVEN_COLOR,
     DEFAULT_ODD_COLOR
 ];
-const ADDITIONAL_HIGHLIGHT_COLORS = [
+const EIGHT_COLOR_PRESET = [
     '#2D6F8E',
     '#5C4B8A',
     '#4E7A59',
@@ -1598,7 +1598,7 @@ function activate(context) {
             const nonce = String(Date.now());
             const serializedColors = JSON.stringify(sanitizeHighlightPalette(colors)).replace(/</g, '\\u003c');
             const serializedDefaults = JSON.stringify(DEFAULT_HIGHLIGHT_COLORS).replace(/</g, '\\u003c');
-            const serializedAdditionalColors = JSON.stringify(ADDITIONAL_HIGHLIGHT_COLORS).replace(/</g, '\\u003c');
+            const serializedEightColorPreset = JSON.stringify(EIGHT_COLOR_PRESET).replace(/</g, '\\u003c');
             const serializedPreviewBackground = JSON.stringify(getEditorBackgroundColor());
             const maxHighlightColors = MAX_HIGHLIGHT_COLORS;
 
@@ -1629,7 +1629,7 @@ function activate(context) {
         .value-chip { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.8rem; padding: 4px 6px; border-radius: 4px; background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-editorWidget-border); min-width: 92px; text-align: center; }
         .row-actions { display: flex; gap: 4px; margin-left: auto; }
         .row-actions button { min-width: 30px; padding: 5px 8px; }
-        .preview { position: sticky; bottom: 0; overflow: hidden; white-space: nowrap; padding: 4px 6px; background: var(--vscode-editor-background); }
+        .preview { position: sticky; bottom: 0; overflow: hidden; white-space: nowrap; padding: 16px; background: var(--vscode-editor-background); }
     </style>
 </head>
 <body>
@@ -1637,6 +1637,7 @@ function activate(context) {
     <p class="helper">Tokens cycle through this palette in order. Dragging previews locally; changes apply to the editor on release.</p>
     <div class="toolbar">
         <button id="addColor">Add color</button>
+        <button id="eightColorPreset" class="secondary">8-color preset</button>
         <button id="resetPalette" class="secondary">Reset palette</button>
     </div>
     <div id="palette"></div>
@@ -1646,13 +1647,14 @@ function activate(context) {
         const paletteElement = document.getElementById('palette');
         const previewElement = document.getElementById('preview');
         const addColorButton = document.getElementById('addColor');
+        const eightColorPresetButton = document.getElementById('eightColorPreset');
         const resetPaletteButton = document.getElementById('resetPalette');
         const defaultColors = ${serializedDefaults};
-        const additionalColors = ${serializedAdditionalColors};
+        const eightColorPreset = ${serializedEightColorPreset};
         const previewBackground = ${serializedPreviewBackground};
         const maxColors = ${maxHighlightColors};
         let colors = ${serializedColors};
-        let nextAdditionalColorIndex = Math.max(0, colors.length - defaultColors.length) % additionalColors.length;
+        let nextAdditionalColorIndex = Math.max(0, colors.length - defaultColors.length) % eightColorPreset.length;
         const previewTokens = ['##', ' Structure', '\\n', '-', ' pages/', ' contains', ' maintained', ' project', ' knowledge', '.'];
 
         const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
@@ -1804,8 +1806,15 @@ function activate(context) {
 
         addColorButton.addEventListener('click', () => {
             if (colors.length >= maxColors) return;
-            colors.push(additionalColors[nextAdditionalColorIndex]);
-            nextAdditionalColorIndex = (nextAdditionalColorIndex + 1) % additionalColors.length;
+            colors.push(eightColorPreset[nextAdditionalColorIndex]);
+            nextAdditionalColorIndex = (nextAdditionalColorIndex + 1) % eightColorPreset.length;
+            renderPalette({ index: colors.length - 1, action: 'color' });
+            applyPalette();
+        });
+
+        eightColorPresetButton.addEventListener('click', () => {
+            colors = eightColorPreset.slice();
+            nextAdditionalColorIndex = 0;
             renderPalette();
             applyPalette();
         });

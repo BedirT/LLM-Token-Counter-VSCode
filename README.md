@@ -59,10 +59,11 @@ Open the **Command Palette** and run `Configure Token Highlight Colors` to custo
 
 **Features:**
 - Add, remove, and reorder palette colors
+- Apply the 8-color preset
 - Color pickers with opacity sliders
 - Live token-style preview of the full palette cycle
 - Dragging color and opacity controls previews locally; changes apply to editor highlighting on release
-- The existing two-color palette remains the default; added colors use curated colors and palettes are limited to 8 colors
+- The existing two-color palette remains the default; the 8-color palette is available as an opt-in preset
 - Reset to the default two-color palette at any time
 
 ### Customizable Status Bar Display
