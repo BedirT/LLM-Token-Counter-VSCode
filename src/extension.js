@@ -10,7 +10,14 @@ const { minimatch } = require('minimatch');
 const CONFIG_SECTION = 'gpt-token-counter-live';
 const DEFAULT_EVEN_COLOR = '#B8D4FF';
 const DEFAULT_ODD_COLOR = '#FFE0A6';
+const DARK_CONTRAST_TEXT = '#1F1F1F';
+const LIGHT_CONTRAST_TEXT = '#FFFFFF';
+const MAX_HIGHLIGHT_COLORS = 8;
 const DEFAULT_HIGHLIGHT_COLORS = [
+    DEFAULT_EVEN_COLOR,
+    DEFAULT_ODD_COLOR
+];
+const ADDITIONAL_HIGHLIGHT_COLORS = [
     '#2D6F8E',
     '#5C4B8A',
     '#4E7A59',
@@ -65,14 +72,15 @@ function sanitizeColorSetting(value, fallback) {
 function sanitizeHighlightPalette(value, fallback = DEFAULT_HIGHLIGHT_COLORS) {
     const fallbackPalette = Array.isArray(fallback) ? fallback : DEFAULT_HIGHLIGHT_COLORS;
     if (!Array.isArray(value)) {
-        return fallbackPalette.slice();
+        return fallbackPalette.slice(0, MAX_HIGHLIGHT_COLORS);
     }
 
     const colors = value
         .map(color => sanitizeColorSetting(color, null))
-        .filter(Boolean);
+        .filter(Boolean)
+        .slice(0, MAX_HIGHLIGHT_COLORS);
 
-    return colors.length > 0 ? colors : fallbackPalette.slice();
+    return colors.length > 0 ? colors : fallbackPalette.slice(0, MAX_HIGHLIGHT_COLORS);
 }
 
 function resolveHighlightPalette(storedPalette, legacyEven, legacyOdd) {
@@ -98,48 +106,66 @@ function getHighlightColorIndex(tokenIndex, colorCount) {
     return tokenIndex % colorCount;
 }
 
-function stripAlpha(hex) {
-    if (typeof hex !== 'string') {
-        return '#000000';
+function parseHexColor(hex) {
+    const normalized = sanitizeColorSetting(hex, null);
+    if (!normalized) {
+        return null;
     }
-    const clean = hex.replace('#', '').toUpperCase();
-    if (clean.length === 6) {
-        return `#${clean}`;
-    }
-    if (clean.length === 8) {
-        return `#${clean.slice(0, 6)}`;
-    }
-    return '#000000';
-}
-
-function hexToLinearRgb(hex) {
-    const noAlpha = stripAlpha(hex).slice(1);
-    const r = parseInt(noAlpha.slice(0, 2), 16) / 255;
-    const g = parseInt(noAlpha.slice(2, 4), 16) / 255;
-    const b = parseInt(noAlpha.slice(4, 6), 16) / 255;
-
-    const toLinear = (channel) => {
-        return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
-    };
-
+    const clean = normalized.slice(1);
     return {
-        r: toLinear(r),
-        g: toLinear(g),
-        b: toLinear(b)
+        r: parseInt(clean.slice(0, 2), 16),
+        g: parseInt(clean.slice(2, 4), 16),
+        b: parseInt(clean.slice(4, 6), 16),
+        a: clean.length === 8 ? parseInt(clean.slice(6, 8), 16) / 255 : 1
     };
 }
 
-function textColorForBackground(hex) {
-    const linear = hexToLinearRgb(hex);
-    const luminance = 0.2126 * linear.r + 0.7152 * linear.g + 0.0722 * linear.b;
-    return luminance > 0.55 ? '#1F1F1F' : '#FFFFFF';
+function blendColorOverBackground(foreground, background) {
+    const alpha = Math.min(Math.max(foreground.a, 0), 1);
+    return {
+        r: foreground.r * alpha + background.r * (1 - alpha),
+        g: foreground.g * alpha + background.g * (1 - alpha),
+        b: foreground.b * alpha + background.b * (1 - alpha)
+    };
 }
 
-function hasTransparentAlpha(hex) {
-    if (typeof hex !== 'string' || !/^#[0-9A-Fa-f]{8}$/.test(hex)) {
-        return false;
+function relativeLuminance({ r, g, b }) {
+    const toLinear = (channel) => {
+        const normalized = channel / 255;
+        return normalized <= 0.04045
+            ? normalized / 12.92
+            : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
+
+function contrastRatio(firstLuminance, secondLuminance) {
+    const lighter = Math.max(firstLuminance, secondLuminance);
+    const darker = Math.min(firstLuminance, secondLuminance);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+function textColorForBackground(hex, underlyingBackground) {
+    const highlight = parseHexColor(hex);
+    const background = parseHexColor(underlyingBackground);
+    if (!highlight || !background) {
+        return LIGHT_CONTRAST_TEXT;
     }
-    return parseInt(hex.slice(7), 16) < 255;
+
+    const effectiveBackground = blendColorOverBackground(highlight, background);
+    const backgroundLuminance = relativeLuminance(effectiveBackground);
+    const darkLuminance = relativeLuminance(parseHexColor(DARK_CONTRAST_TEXT));
+    const lightLuminance = relativeLuminance(parseHexColor(LIGHT_CONTRAST_TEXT));
+    const darkContrast = contrastRatio(backgroundLuminance, darkLuminance);
+    const lightContrast = contrastRatio(backgroundLuminance, lightLuminance);
+    return darkContrast >= lightContrast ? DARK_CONTRAST_TEXT : LIGHT_CONTRAST_TEXT;
+}
+
+function getEditorBackgroundColor() {
+    const kind = vscode.window.activeColorTheme.kind;
+    return kind === vscode.ColorThemeKind.Light || kind === vscode.ColorThemeKind.HighContrastLight
+        ? '#FFFFFF'
+        : '#1E1E1E';
 }
 
 function hexToCssColor(hex) {
@@ -335,7 +361,13 @@ function loadHighlightColors(context) {
 
     highlightColors = resolveHighlightPalette(storedPalette, evenStored, oddStored);
 
-    if ((!Array.isArray(storedPalette) || storedPalette.length === 0) && (evenStored !== undefined || oddStored !== undefined)) {
+    const storedPaletteMatches = Array.isArray(storedPalette) &&
+        storedPalette.length === highlightColors.length &&
+        storedPalette.every((color, index) => color === highlightColors[index]);
+    const needsPaletteRepair = storedPalette !== undefined && !storedPaletteMatches;
+    const needsLegacyMigration = storedPalette === undefined && (evenStored !== undefined || oddStored !== undefined);
+
+    if (needsPaletteRepair || needsLegacyMigration) {
         void context.globalState.update(HIGHLIGHT_COLORS_KEY, highlightColors);
     }
 }
@@ -415,12 +447,13 @@ function applyStatusBarTemplate(template, data) {
 }
 
 function createTokenDecorationTypes() {
+    const editorBackground = getEditorBackgroundColor();
     return highlightColors.map(color => {
         const options = {
             backgroundColor: hexToCssColor(color)
         };
-        if (!hasTransparentAlpha(color)) {
-            options.color = textColorForBackground(color);
+        if (color.length !== 9 || !color.endsWith('00')) {
+            options.color = textColorForBackground(color, editorBackground);
         }
         return vscode.window.createTextEditorDecorationType(options);
     });
@@ -709,7 +742,6 @@ function activate(context) {
     highlightStatusBar.text = '$(symbol-color)';
 
     let tokenDecorations = createTokenDecorationTypes();
-
     let currentProvider = getDefaultProviderFromConfig();
     let currentFamilyName = MODEL_FAMILIES[currentProvider];
     let highlightEnabled = false;
@@ -1364,6 +1396,12 @@ function activate(context) {
     vscode.window.onDidChangeTextEditorSelection(scheduleUpdateTokenCount, null, context.subscriptions);
     vscode.window.onDidChangeActiveTextEditor(scheduleUpdateTokenCount, null, context.subscriptions);
     vscode.workspace.onDidChangeTextDocument(scheduleUpdateTokenCount, null, context.subscriptions);
+    vscode.window.onDidChangeActiveColorTheme(() => {
+        refreshTokenDecorations();
+        if (highlightEnabled && tokenizerState.supportsHighlight) {
+            scheduleUpdateTokenCount();
+        }
+    }, null, context.subscriptions);
 
     vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration(`${CONFIG_SECTION}.statusBarDisplayTemplate`)) {
@@ -1560,6 +1598,9 @@ function activate(context) {
             const nonce = String(Date.now());
             const serializedColors = JSON.stringify(sanitizeHighlightPalette(colors)).replace(/</g, '\\u003c');
             const serializedDefaults = JSON.stringify(DEFAULT_HIGHLIGHT_COLORS).replace(/</g, '\\u003c');
+            const serializedAdditionalColors = JSON.stringify(ADDITIONAL_HIGHLIGHT_COLORS).replace(/</g, '\\u003c');
+            const serializedPreviewBackground = JSON.stringify(getEditorBackgroundColor());
+            const maxHighlightColors = MAX_HIGHLIGHT_COLORS;
 
             return `<!DOCTYPE html>
 <html lang="en">
@@ -1588,20 +1629,17 @@ function activate(context) {
         .value-chip { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.8rem; padding: 4px 6px; border-radius: 4px; background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-editorWidget-border); min-width: 92px; text-align: center; }
         .row-actions { display: flex; gap: 4px; margin-left: auto; }
         .row-actions button { min-width: 30px; padding: 5px 8px; }
-        .preview-title { margin: 18px 0 8px; font-size: 0.9rem; font-weight: 600; }
-        .preview { display: flex; flex-wrap: wrap; align-items: center; border: 1px solid var(--vscode-editorWidget-border); border-radius: 6px; overflow: hidden; font-family: var(--vscode-editor-font-family, monospace); font-size: var(--vscode-editor-font-size, 13px); }
-        .preview span { padding: 7px 2px; white-space: pre; }
+        .preview { position: sticky; bottom: 0; overflow: hidden; white-space: nowrap; padding: 4px 6px; background: var(--vscode-editor-background); }
     </style>
 </head>
 <body>
     <h1>Token Highlight Colors</h1>
-    <p class="helper">Tokens cycle through this palette in order. Changes apply immediately.</p>
+    <p class="helper">Tokens cycle through this palette in order. Dragging previews locally; changes apply to the editor on release.</p>
     <div class="toolbar">
         <button id="addColor">Add color</button>
         <button id="resetPalette" class="secondary">Reset palette</button>
     </div>
     <div id="palette"></div>
-    <div class="preview-title">Preview</div>
     <div id="preview" class="preview"></div>
     <script nonce="${nonce}">
         const vscodeApi = acquireVsCodeApi();
@@ -1610,25 +1648,14 @@ function activate(context) {
         const addColorButton = document.getElementById('addColor');
         const resetPaletteButton = document.getElementById('resetPalette');
         const defaultColors = ${serializedDefaults};
+        const additionalColors = ${serializedAdditionalColors};
+        const previewBackground = ${serializedPreviewBackground};
+        const maxColors = ${maxHighlightColors};
         let colors = ${serializedColors};
+        let nextAdditionalColorIndex = Math.max(0, colors.length - defaultColors.length) % additionalColors.length;
         const previewTokens = ['##', ' Structure', '\\n', '-', ' pages/', ' contains', ' maintained', ' project', ' knowledge', '.'];
 
         const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
-
-        const parseRgb = (value) => {
-            const match = value.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?\\)/);
-            if (!match) {
-                return { r: 30, g: 30, b: 30, a: 1 };
-            }
-            return {
-                r: Number(match[1]),
-                g: Number(match[2]),
-                b: Number(match[3]),
-                a: match[4] !== undefined ? Number(match[4]) : 1
-            };
-        };
-
-        const bodyBackground = parseRgb(getComputedStyle(document.body).backgroundColor);
 
         const hexToRgba = (hex) => {
             const clean = hex.replace('#', '');
@@ -1642,31 +1669,34 @@ function activate(context) {
 
         const blendOnBackground = (foreground) => {
             const alpha = clamp(foreground.a, 0, 1);
+            const background = hexToRgba(previewBackground);
             return {
-                r: Math.round(foreground.r * alpha + bodyBackground.r * (1 - alpha)),
-                g: Math.round(foreground.g * alpha + bodyBackground.g * (1 - alpha)),
-                b: Math.round(foreground.b * alpha + bodyBackground.b * (1 - alpha))
+                r: foreground.r * alpha + background.r * (1 - alpha),
+                g: foreground.g * alpha + background.g * (1 - alpha),
+                b: foreground.b * alpha + background.b * (1 - alpha)
             };
         };
 
         const luminance = ({ r, g, b }) => {
             const srgb = [r, g, b].map(component => {
                 const scaled = component / 255;
-                return scaled <= 0.03928 ? scaled / 12.92 : Math.pow((scaled + 0.055) / 1.055, 2.4);
+                return scaled <= 0.04045 ? scaled / 12.92 : Math.pow((scaled + 0.055) / 1.055, 2.4);
             });
             return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
         };
 
         const pickTextColor = (hex) => {
-            const blended = blendOnBackground(hexToRgba(hex));
-            return luminance(blended) > 0.55 ? '#1f1f1f' : '#f5f5f5';
-        };
-
-        const previewTextColor = (hex) => {
-            if (hex.length === 9 && parseInt(hex.slice(7), 16) < 255) {
+            if (hex.length === 9 && parseInt(hex.slice(7), 16) === 0) {
                 return 'var(--vscode-editor-foreground)';
             }
-            return pickTextColor(hex);
+            const blended = blendOnBackground(hexToRgba(hex));
+            const backgroundLuminance = luminance(blended);
+            const darkLuminance = luminance({ r: 31, g: 31, b: 31 });
+            const lightLuminance = luminance({ r: 255, g: 255, b: 255 });
+            const contrast = (first, second) => (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+            return contrast(backgroundLuminance, darkLuminance) >= contrast(backgroundLuminance, lightLuminance)
+                ? '#1F1F1F'
+                : '#FFFFFF';
         };
 
         const toHex6 = (value) => value.slice(0, 7).toLowerCase();
@@ -1685,14 +1715,14 @@ function activate(context) {
             return alphaHex ? normalizedBase + alphaHex : normalizedBase;
         };
 
-        const emitPaletteChange = () => {
+        const applyPalette = () => {
             vscodeApi.postMessage({ type: 'paletteChange', colors: colors.slice() });
         };
 
         const renderPreview = () => {
             previewElement.innerHTML = previewTokens.map((token, index) => {
                 const color = colors[index % colors.length];
-                return '<span style="background:' + color + ';color:' + previewTextColor(color) + '">' + token.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+                return '<span style="background:' + color + ';color:' + pickTextColor(color) + '">' + token.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
             }).join('');
         };
 
@@ -1702,10 +1732,10 @@ function activate(context) {
             row.querySelector('[data-value]').textContent = color;
             row.querySelector('[data-alpha-value]').textContent = Math.round(alphaPercent) + '%';
             renderPreview();
-            emitPaletteChange();
         };
 
-        const renderPalette = () => {
+        const renderPalette = (focusRequest = null) => {
+            addColorButton.disabled = colors.length >= maxColors;
             paletteElement.innerHTML = colors.map((color, index) => {
                 const baseHex = toHex6(color);
                 const alphaPercent = toAlphaPercent(color);
@@ -1715,9 +1745,9 @@ function activate(context) {
                         '<input data-color type="color" value="' + baseHex + '" aria-label="Token color ' + (index + 1) + '" />' +
                         '<span class="value-chip" data-value>' + color + '</span>' +
                         '<div class="row-actions">' +
-                            '<button class="secondary" data-move-up title="Move up"' + (index === 0 ? ' disabled' : '') + '>↑</button>' +
-                            '<button class="secondary" data-move-down title="Move down"' + (index === colors.length - 1 ? ' disabled' : '') + '>↓</button>' +
-                            '<button class="secondary" data-remove title="Remove color"' + (colors.length === 1 ? ' disabled' : '') + '>×</button>' +
+                            '<button class="secondary" data-move-up title="Move color ' + (index + 1) + ' up" aria-label="Move color ' + (index + 1) + ' up"' + (index === 0 ? ' disabled' : '') + '>↑</button>' +
+                            '<button class="secondary" data-move-down title="Move color ' + (index + 1) + ' down" aria-label="Move color ' + (index + 1) + ' down"' + (index === colors.length - 1 ? ' disabled' : '') + '>↓</button>' +
+                            '<button class="secondary" data-remove title="Remove color ' + (index + 1) + '" aria-label="Remove color ' + (index + 1) + '"' + (colors.length === 1 ? ' disabled' : '') + '>×</button>' +
                         '</div>' +
                     '</div>' +
                     '<div class="alpha-row">' +
@@ -1736,42 +1766,55 @@ function activate(context) {
                 const update = () => updateColorAt(index, colorInput.value, Number(alphaInput.value), row);
                 colorInput.addEventListener('input', update);
                 alphaInput.addEventListener('input', update);
+                colorInput.addEventListener('change', applyPalette);
+                alphaInput.addEventListener('change', applyPalette);
 
                 row.querySelector('[data-move-up]').addEventListener('click', () => {
                     if (index === 0) return;
                     [colors[index - 1], colors[index]] = [colors[index], colors[index - 1]];
-                    renderPalette();
-                    emitPaletteChange();
+                    renderPalette({ index: index - 1, action: 'move-up' });
+                    applyPalette();
                 });
 
                 row.querySelector('[data-move-down]').addEventListener('click', () => {
                     if (index >= colors.length - 1) return;
                     [colors[index], colors[index + 1]] = [colors[index + 1], colors[index]];
-                    renderPalette();
-                    emitPaletteChange();
+                    renderPalette({ index: index + 1, action: 'move-down' });
+                    applyPalette();
                 });
 
                 row.querySelector('[data-remove]').addEventListener('click', () => {
                     if (colors.length === 1) return;
                     colors.splice(index, 1);
-                    renderPalette();
-                    emitPaletteChange();
+                    renderPalette({ index: Math.min(index, colors.length - 1), action: 'remove' });
+                    applyPalette();
                 });
             });
 
             renderPreview();
+
+            if (focusRequest) {
+                const focusRow = paletteElement.querySelector('.palette-item[data-index="' + focusRequest.index + '"]');
+                const preferredTarget = focusRow && focusRow.querySelector('[data-' + focusRequest.action + ']');
+                const fallbackTarget = focusRow && focusRow.querySelector('[data-color]');
+                const focusTarget = preferredTarget && !preferredTarget.disabled ? preferredTarget : fallbackTarget;
+                if (focusTarget) focusTarget.focus();
+            }
         };
 
         addColorButton.addEventListener('click', () => {
-            colors.push(defaultColors[colors.length % defaultColors.length]);
+            if (colors.length >= maxColors) return;
+            colors.push(additionalColors[nextAdditionalColorIndex]);
+            nextAdditionalColorIndex = (nextAdditionalColorIndex + 1) % additionalColors.length;
             renderPalette();
-            emitPaletteChange();
+            applyPalette();
         });
 
         resetPaletteButton.addEventListener('click', () => {
             colors = defaultColors.slice();
+            nextAdditionalColorIndex = 0;
             renderPalette();
-            emitPaletteChange();
+            applyPalette();
         });
 
         renderPalette();
@@ -1784,10 +1827,15 @@ function activate(context) {
 
         const updatePalette = async (colors) => {
             const nextPalette = sanitizeHighlightPalette(colors, highlightColors);
+            if (nextPalette.length === highlightColors.length && nextPalette.every((color, index) => color === highlightColors[index])) {
+                return;
+            }
             highlightColors = nextPalette;
             await context.globalState.update(HIGHLIGHT_COLORS_KEY, nextPalette);
             refreshTokenDecorations();
-            scheduleUpdateTokenCount();
+            if (highlightEnabled && tokenizerState.supportsHighlight) {
+                scheduleUpdateTokenCount();
+            }
         };
 
         const messageDisposable = panel.webview.onDidReceiveMessage(async (message) => {
@@ -1838,7 +1886,7 @@ module.exports = {
         sanitizeHighlightPalette,
         resolveHighlightPalette,
         getHighlightColorIndex,
-        hasTransparentAlpha,
+        textColorForBackground,
         getDefaultHighlightColors: () => DEFAULT_HIGHLIGHT_COLORS.slice(),
         loadEnabledFilePatterns,
         matchesEnabledFilePatterns,

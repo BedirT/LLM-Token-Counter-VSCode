@@ -61,7 +61,9 @@ Open the **Command Palette** and run `Configure Token Highlight Colors` to custo
 - Add, remove, and reorder palette colors
 - Color pickers with opacity sliders
 - Live token-style preview of the full palette cycle
-- Reset to the default multi-color palette at any time
+- Dragging color and opacity controls previews locally; changes apply to editor highlighting on release
+- The existing two-color palette remains the default; added colors use curated colors and palettes are limited to 8 colors
+- Reset to the default two-color palette at any time
 
 ### Customizable Status Bar Display
 Personalize how token information appears in your status bar using template placeholders.
@@ -88,7 +90,7 @@ This extension provides the following commands (accessible via Command Palette):
 
 - **`Toggle Token Highlighting`**: Enable or disable visual token highlighting overlays. Also accessible by clicking the palette icon in the status bar.
 
-- **`Configure Token Highlight Colors`**: Open an interactive palette editor to add, remove, reorder, and customize token highlight colors. Includes live preview and smart text contrast.
+- **`Configure Token Highlight Colors`**: Open an interactive palette editor to add, remove, reorder, and customize up to 8 token highlight colors with a live preview.
 
 - **`Count Tokens`**: Manually trigger token counting for the current document or selection.
 

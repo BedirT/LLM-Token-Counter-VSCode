@@ -88,14 +88,13 @@ suite('Highlight Palette', () => {
 		sanitizeHighlightPalette,
 		resolveHighlightPalette,
 		getHighlightColorIndex,
-		hasTransparentAlpha,
+		textColorForBackground,
 		getDefaultHighlightColors
 	} = extension._test;
 
-	test('default palette contains multiple distinct colors', () => {
+	test('default palette remains the original two colors', () => {
 		const colors = getDefaultHighlightColors();
-		assert.ok(colors.length > 2);
-		assert.strictEqual(new Set(colors).size, colors.length);
+		assert.deepStrictEqual(colors, ['#B8D4FF', '#FFE0A6']);
 	});
 
 	test('sanitizeHighlightPalette normalizes valid colors and drops invalid entries', () => {
@@ -103,6 +102,11 @@ suite('Highlight Palette', () => {
 			sanitizeHighlightPalette([' #abcdef ', 'nope', '#12345678', null], []),
 			['#ABCDEF', '#12345678']
 		);
+	});
+
+	test('sanitizeHighlightPalette limits palettes to 8 colors', () => {
+		const colors = Array.from({ length: 20 }, (_, index) => `#${index.toString(16).padStart(6, '0')}`);
+		assert.deepStrictEqual(sanitizeHighlightPalette(colors, []), colors.slice(0, 8).map(color => color.toUpperCase()));
 	});
 
 	test('resolveHighlightPalette prefers a saved multi-color palette', () => {
@@ -126,12 +130,11 @@ suite('Highlight Palette', () => {
 		);
 	});
 
-	test('transparent alpha is detected without treating opaque 8-digit colors as transparent', () => {
-		assert.strictEqual(hasTransparentAlpha('#12345680'), true);
-		assert.strictEqual(hasTransparentAlpha('#123456FE'), true);
-		assert.strictEqual(hasTransparentAlpha('#123456FF'), false);
-		assert.strictEqual(hasTransparentAlpha('#123456'), false);
+	test('transparent highlights choose text from the composited visible background', () => {
+		assert.strictEqual(textColorForBackground('#FFE0A6FC', '#FFFFFF'), '#1F1F1F');
+		assert.strictEqual(textColorForBackground('#FFFFFF33', '#1E1E1E'), '#FFFFFF');
 	});
+
 });
 
 suite('File Pattern Matching', () => {
