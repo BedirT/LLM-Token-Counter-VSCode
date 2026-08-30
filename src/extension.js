@@ -10,6 +10,23 @@ const { minimatch } = require('minimatch');
 const CONFIG_SECTION = 'gpt-token-counter-live';
 const DEFAULT_EVEN_COLOR = '#B8D4FF';
 const DEFAULT_ODD_COLOR = '#FFE0A6';
+const DARK_CONTRAST_TEXT = '#1F1F1F';
+const LIGHT_CONTRAST_TEXT = '#FFFFFF';
+const MAX_HIGHLIGHT_COLORS = 8;
+const DEFAULT_HIGHLIGHT_COLORS = [
+    DEFAULT_EVEN_COLOR,
+    DEFAULT_ODD_COLOR
+];
+const EIGHT_COLOR_PRESET = [
+    '#2D6F8E',
+    '#5C4B8A',
+    '#4E7A59',
+    '#8B6428',
+    '#8A3F46',
+    '#36756F',
+    '#765784',
+    '#6E7846'
+];
 const DEFAULT_STATUS_TEMPLATE = 'Token Count: {count} ({family})';
 
 const MODEL_FAMILIES = {
@@ -26,6 +43,7 @@ const HF_SAFE_ID_HASH_LENGTH = 12;
 
 const HIGHLIGHT_EVEN_KEY = 'highlightEvenColor';
 const HIGHLIGHT_ODD_KEY = 'highlightOddColor';
+const HIGHLIGHT_COLORS_KEY = 'highlightColors';
 const NON_HIGHLIGHT_SCHEMES = new Set([
     'output',
     'vscode-output',
@@ -51,41 +69,103 @@ function sanitizeColorSetting(value, fallback) {
     return fallback;
 }
 
-function stripAlpha(hex) {
-    if (typeof hex !== 'string') {
-        return '#000000';
+function sanitizeHighlightPalette(value, fallback = DEFAULT_HIGHLIGHT_COLORS) {
+    const fallbackPalette = Array.isArray(fallback) ? fallback : DEFAULT_HIGHLIGHT_COLORS;
+    if (!Array.isArray(value)) {
+        return fallbackPalette.slice(0, MAX_HIGHLIGHT_COLORS);
     }
-    const clean = hex.replace('#', '').toUpperCase();
-    if (clean.length === 6) {
-        return `#${clean}`;
-    }
-    if (clean.length === 8) {
-        return `#${clean.slice(0, 6)}`;
-    }
-    return '#000000';
+
+    const colors = value
+        .map(color => sanitizeColorSetting(color, null))
+        .filter(Boolean)
+        .slice(0, MAX_HIGHLIGHT_COLORS);
+
+    return colors.length > 0 ? colors : fallbackPalette.slice(0, MAX_HIGHLIGHT_COLORS);
 }
 
-function hexToLinearRgb(hex) {
-    const noAlpha = stripAlpha(hex).slice(1);
-    const r = parseInt(noAlpha.slice(0, 2), 16) / 255;
-    const g = parseInt(noAlpha.slice(2, 4), 16) / 255;
-    const b = parseInt(noAlpha.slice(4, 6), 16) / 255;
+function resolveHighlightPalette(storedPalette, legacyEven, legacyOdd) {
+    const savedPalette = sanitizeHighlightPalette(storedPalette, []);
+    if (savedPalette.length > 0) {
+        return savedPalette;
+    }
 
-    const toLinear = (channel) => {
-        return channel <= 0.03928 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
-    };
+    if (legacyEven !== undefined || legacyOdd !== undefined) {
+        return [
+            sanitizeColorSetting(legacyEven, DEFAULT_EVEN_COLOR),
+            sanitizeColorSetting(legacyOdd, DEFAULT_ODD_COLOR)
+        ];
+    }
 
+    return DEFAULT_HIGHLIGHT_COLORS.slice();
+}
+
+function getHighlightColorIndex(tokenIndex, colorCount) {
+    if (!Number.isInteger(tokenIndex) || tokenIndex < 0 || !Number.isInteger(colorCount) || colorCount < 1) {
+        return 0;
+    }
+    return tokenIndex % colorCount;
+}
+
+function parseHexColor(hex) {
+    const normalized = sanitizeColorSetting(hex, null);
+    if (!normalized) {
+        return null;
+    }
+    const clean = normalized.slice(1);
     return {
-        r: toLinear(r),
-        g: toLinear(g),
-        b: toLinear(b)
+        r: parseInt(clean.slice(0, 2), 16),
+        g: parseInt(clean.slice(2, 4), 16),
+        b: parseInt(clean.slice(4, 6), 16),
+        a: clean.length === 8 ? parseInt(clean.slice(6, 8), 16) / 255 : 1
     };
 }
 
-function textColorForBackground(hex) {
-    const linear = hexToLinearRgb(hex);
-    const luminance = 0.2126 * linear.r + 0.7152 * linear.g + 0.0722 * linear.b;
-    return luminance > 0.55 ? '#1F1F1F' : '#FFFFFF';
+function blendColorOverBackground(foreground, background) {
+    const alpha = Math.min(Math.max(foreground.a, 0), 1);
+    return {
+        r: foreground.r * alpha + background.r * (1 - alpha),
+        g: foreground.g * alpha + background.g * (1 - alpha),
+        b: foreground.b * alpha + background.b * (1 - alpha)
+    };
+}
+
+function relativeLuminance({ r, g, b }) {
+    const toLinear = (channel) => {
+        const normalized = channel / 255;
+        return normalized <= 0.04045
+            ? normalized / 12.92
+            : Math.pow((normalized + 0.055) / 1.055, 2.4);
+    };
+    return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+}
+
+function contrastRatio(firstLuminance, secondLuminance) {
+    const lighter = Math.max(firstLuminance, secondLuminance);
+    const darker = Math.min(firstLuminance, secondLuminance);
+    return (lighter + 0.05) / (darker + 0.05);
+}
+
+function textColorForBackground(hex, underlyingBackground) {
+    const highlight = parseHexColor(hex);
+    const background = parseHexColor(underlyingBackground);
+    if (!highlight || !background) {
+        return LIGHT_CONTRAST_TEXT;
+    }
+
+    const effectiveBackground = blendColorOverBackground(highlight, background);
+    const backgroundLuminance = relativeLuminance(effectiveBackground);
+    const darkLuminance = relativeLuminance(parseHexColor(DARK_CONTRAST_TEXT));
+    const lightLuminance = relativeLuminance(parseHexColor(LIGHT_CONTRAST_TEXT));
+    const darkContrast = contrastRatio(backgroundLuminance, darkLuminance);
+    const lightContrast = contrastRatio(backgroundLuminance, lightLuminance);
+    return darkContrast >= lightContrast ? DARK_CONTRAST_TEXT : LIGHT_CONTRAST_TEXT;
+}
+
+function getEditorBackgroundColor() {
+    const kind = vscode.window.activeColorTheme.kind;
+    return kind === vscode.ColorThemeKind.Light || kind === vscode.ColorThemeKind.HighContrastLight
+        ? '#FFFFFF'
+        : '#1E1E1E';
 }
 
 function hexToCssColor(hex) {
@@ -251,15 +331,13 @@ function resolveOriginalOffsetFromNormalized(offsetMap, normalizedOffset, direct
     return offsetMap.forward[normalizedOffset];
 }
 
-let highlightColors = {
-    even: DEFAULT_EVEN_COLOR,
-    odd: DEFAULT_ODD_COLOR
-};
+let highlightColors = DEFAULT_HIGHLIGHT_COLORS.slice();
 
 let statusBarTemplate = DEFAULT_STATUS_TEMPLATE;
 let enabledFilePatterns = [];
 
 function loadHighlightColors(context) {
+    const storedPalette = context.globalState.get(HIGHLIGHT_COLORS_KEY);
     let evenStored = context.globalState.get(HIGHLIGHT_EVEN_KEY);
     let oddStored = context.globalState.get(HIGHLIGHT_ODD_KEY);
 
@@ -281,13 +359,17 @@ function loadHighlightColors(context) {
         }
     }
 
-    const resolvedEven = evenStored !== undefined && evenStored !== null ? evenStored : DEFAULT_EVEN_COLOR;
-    const resolvedOdd = oddStored !== undefined && oddStored !== null ? oddStored : DEFAULT_ODD_COLOR;
+    highlightColors = resolveHighlightPalette(storedPalette, evenStored, oddStored);
 
-    highlightColors = {
-        even: sanitizeColorSetting(resolvedEven, DEFAULT_EVEN_COLOR),
-        odd: sanitizeColorSetting(resolvedOdd, DEFAULT_ODD_COLOR)
-    };
+    const storedPaletteMatches = Array.isArray(storedPalette) &&
+        storedPalette.length === highlightColors.length &&
+        storedPalette.every((color, index) => color === highlightColors[index]);
+    const needsPaletteRepair = storedPalette !== undefined && !storedPaletteMatches;
+    const needsLegacyMigration = storedPalette === undefined && (evenStored !== undefined || oddStored !== undefined);
+
+    if (needsPaletteRepair || needsLegacyMigration) {
+        void context.globalState.update(HIGHLIGHT_COLORS_KEY, highlightColors);
+    }
 }
 
 function loadStatusBarConfig() {
@@ -365,21 +447,16 @@ function applyStatusBarTemplate(template, data) {
 }
 
 function createTokenDecorationTypes() {
-    const evenTextColor = textColorForBackground(highlightColors.even);
-    const oddTextColor = textColorForBackground(highlightColors.odd);
-    const evenBackground = hexToCssColor(highlightColors.even);
-    const oddBackground = hexToCssColor(highlightColors.odd);
-
-    return {
-        even: vscode.window.createTextEditorDecorationType({
-            backgroundColor: evenBackground,
-            color: evenTextColor
-        }),
-        odd: vscode.window.createTextEditorDecorationType({
-            backgroundColor: oddBackground,
-            color: oddTextColor
-        })
-    };
+    const editorBackground = getEditorBackgroundColor();
+    return highlightColors.map(color => {
+        const options = {
+            backgroundColor: hexToCssColor(color)
+        };
+        if (color.length !== 9 || !color.endsWith('00')) {
+            options.color = textColorForBackground(color, editorBackground);
+        }
+        return vscode.window.createTextEditorDecorationType(options);
+    });
 }
 
 function deriveHfSafeId(modelId) {
@@ -644,7 +721,7 @@ let tokenizerState = {
  */
 function activate(context) {
     if (typeof context.globalState.setKeysForSync === 'function') {
-        context.globalState.setKeysForSync([HIGHLIGHT_EVEN_KEY, HIGHLIGHT_ODD_KEY]);
+        context.globalState.setKeysForSync([HIGHLIGHT_COLORS_KEY, HIGHLIGHT_EVEN_KEY, HIGHLIGHT_ODD_KEY]);
     }
 
     loadHighlightColors(context);
@@ -665,7 +742,6 @@ function activate(context) {
     highlightStatusBar.text = '$(symbol-color)';
 
     let tokenDecorations = createTokenDecorationTypes();
-
     let currentProvider = getDefaultProviderFromConfig();
     let currentFamilyName = MODEL_FAMILIES[currentProvider];
     let highlightEnabled = false;
@@ -679,8 +755,7 @@ function activate(context) {
         {
             dispose: () => {
                 if (tokenDecorations) {
-                    tokenDecorations.even.dispose();
-                    tokenDecorations.odd.dispose();
+                    tokenDecorations.forEach(decoration => decoration.dispose());
                 }
             }
         }
@@ -691,8 +766,7 @@ function activate(context) {
             return;
         }
         if (tokenDecorations) {
-            editor.setDecorations(tokenDecorations.even, []);
-            editor.setDecorations(tokenDecorations.odd, []);
+            tokenDecorations.forEach(decoration => editor.setDecorations(decoration, []));
         }
     }
 
@@ -703,18 +777,15 @@ function activate(context) {
         }
 
         vscode.window.visibleTextEditors.forEach(editor => {
-            editor.setDecorations(tokenDecorations.even, []);
-            editor.setDecorations(tokenDecorations.odd, []);
+            tokenDecorations.forEach(decoration => editor.setDecorations(decoration, []));
         });
 
-        tokenDecorations.even.dispose();
-        tokenDecorations.odd.dispose();
+        tokenDecorations.forEach(decoration => decoration.dispose());
         tokenDecorations = createTokenDecorationTypes();
 
         vscode.window.visibleTextEditors.forEach(editor => {
             if (!isHighlightableEditor(editor)) {
-                editor.setDecorations(tokenDecorations.even, []);
-                editor.setDecorations(tokenDecorations.odd, []);
+                tokenDecorations.forEach(decoration => editor.setDecorations(decoration, []));
             }
         });
     }
@@ -730,8 +801,7 @@ function activate(context) {
             return;
         }
 
-        const evenRanges = [];
-        const oddRanges = [];
+        const rangesByColor = tokenDecorations.map(() => []);
         const tokens = tokenizationResult.tokens;
         const document = editor.document;
         const renderedText = tokenizationResult.processedText || sourceText;
@@ -746,6 +816,7 @@ function activate(context) {
         }
 
         let byteCursor = 0;
+        let visibleIndex = 0;
         let hasMismatch = false;
 
         for (let i = 0; i < tokens.length; i++) {
@@ -802,11 +873,8 @@ function activate(context) {
             const range = new vscode.Range(document.positionAt(startOffset), document.positionAt(endOffset));
 
             if (!range.isEmpty) {
-                if (i % 2 === 0) {
-                    evenRanges.push(range);
-                } else {
-                    oddRanges.push(range);
-                }
+                rangesByColor[getHighlightColorIndex(visibleIndex, rangesByColor.length)].push(range);
+                visibleIndex++;
             }
 
             byteCursor = endByte;
@@ -822,8 +890,9 @@ function activate(context) {
             return;
         }
 
-        editor.setDecorations(tokenDecorations.even, evenRanges);
-        editor.setDecorations(tokenDecorations.odd, oddRanges);
+        tokenDecorations.forEach((decoration, index) => {
+            editor.setDecorations(decoration, rangesByColor[index]);
+        });
     }
 
     function updateHighlightStatusBar() {
@@ -1241,8 +1310,7 @@ function activate(context) {
             return;
         }
 
-        const evenRanges = [];
-        const oddRanges = [];
+        const rangesByColor = tokenDecorations.map(() => []);
         const document = editor.document;
         const offsets = tokenizationResult.offsets || [];
 
@@ -1262,16 +1330,13 @@ function activate(context) {
             if (range.isEmpty) {
                 continue;
             }
-            if (visibleIndex % 2 === 0) {
-                evenRanges.push(range);
-            } else {
-                oddRanges.push(range);
-            }
+            rangesByColor[getHighlightColorIndex(visibleIndex, rangesByColor.length)].push(range);
             visibleIndex++;
         }
 
-        editor.setDecorations(tokenDecorations.even, evenRanges);
-        editor.setDecorations(tokenDecorations.odd, oddRanges);
+        tokenDecorations.forEach((decoration, index) => {
+            editor.setDecorations(decoration, rangesByColor[index]);
+        });
     }
 
     async function updateTokenCount() {
@@ -1331,6 +1396,12 @@ function activate(context) {
     vscode.window.onDidChangeTextEditorSelection(scheduleUpdateTokenCount, null, context.subscriptions);
     vscode.window.onDidChangeActiveTextEditor(scheduleUpdateTokenCount, null, context.subscriptions);
     vscode.workspace.onDidChangeTextDocument(scheduleUpdateTokenCount, null, context.subscriptions);
+    vscode.window.onDidChangeActiveColorTheme(() => {
+        refreshTokenDecorations();
+        if (highlightEnabled && tokenizerState.supportsHighlight) {
+            scheduleUpdateTokenCount();
+        }
+    }, null, context.subscriptions);
 
     vscode.workspace.onDidChangeConfiguration(event => {
         if (event.affectsConfiguration(`${CONFIG_SECTION}.statusBarDisplayTemplate`)) {
@@ -1523,40 +1594,13 @@ function activate(context) {
             }
         );
 
-        const evenColor = sanitizeColorSetting(highlightColors.even, DEFAULT_EVEN_COLOR);
-        const oddColor = sanitizeColorSetting(highlightColors.odd, DEFAULT_ODD_COLOR);
-
-        const getHtml = (evenHex, oddHex) => {
+        const getHtml = (colors) => {
             const nonce = String(Date.now());
-            const toHex6 = (value) => {
-                if (typeof value !== 'string') {
-                    return '#000000';
-                }
-                const match = value.match(/^#([0-9A-Fa-f]{6})/);
-                if (match) {
-                    return `#${match[1].toUpperCase()}`;
-                }
-                const match8 = value.match(/^#([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})$/);
-                if (match8) {
-                    return `#${match8[1].toUpperCase()}`;
-                }
-                return '#000000';
-            };
-
-            const toAlphaPercent = (value) => {
-                if (typeof value === 'string' && value.length === 9) {
-                    return Math.round((parseInt(value.slice(7), 16) / 255) * 100);
-                }
-                return 100;
-            };
-
-            const normalizedEven = sanitizeColorSetting(evenHex, DEFAULT_EVEN_COLOR);
-            const normalizedOdd = sanitizeColorSetting(oddHex, DEFAULT_ODD_COLOR);
-
-            const evenHex6 = toHex6(normalizedEven).toLowerCase();
-            const oddHex6 = toHex6(normalizedOdd).toLowerCase();
-            const evenAlphaPercent = toAlphaPercent(normalizedEven);
-            const oddAlphaPercent = toAlphaPercent(normalizedOdd);
+            const serializedColors = JSON.stringify(sanitizeHighlightPalette(colors)).replace(/</g, '\\u003c');
+            const serializedDefaults = JSON.stringify(DEFAULT_HIGHLIGHT_COLORS).replace(/</g, '\\u003c');
+            const serializedEightColorPreset = JSON.stringify(EIGHT_COLOR_PRESET).replace(/</g, '\\u003c');
+            const serializedPreviewBackground = JSON.stringify(getEditorBackgroundColor());
+            const maxHighlightColors = MAX_HIGHLIGHT_COLORS;
 
             return `<!DOCTYPE html>
 <html lang="en">
@@ -1567,116 +1611,103 @@ function activate(context) {
     <title>Token Highlight Colors</title>
     <style>
         body { font-family: var(--vscode-font-family); padding: 16px; color: var(--vscode-foreground); background: var(--vscode-editor-background); }
-        h1 { font-size: 1.3rem; margin-bottom: 12px; }
-        .picker-row { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
-        .alpha-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-        label { width: 160px; }
-        input[type="color"] { appearance: none; -webkit-appearance: none; border: none; width: 40px; height: 40px; padding: 0; background: transparent; cursor: pointer; }
-        input[type="range"] { flex: 1; }
-        .preview { border: 1px solid var(--vscode-editorWidget-border); border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
-        .preview-row { display: flex; height: 36px; }
-        .preview-row span { flex: 1; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; }
-        .helper { font-size: 0.85rem; color: var(--vscode-descriptionForeground); margin-bottom: 16px; }
-        .value-chip { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.8rem; padding: 4px 6px; border-radius: 4px; background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-editorWidget-border); min-width: 110px; text-align: center; }
+        h1 { font-size: 1.3rem; margin-bottom: 8px; }
+        button { color: var(--vscode-button-foreground); background: var(--vscode-button-background); border: 0; border-radius: 3px; padding: 6px 10px; cursor: pointer; }
+        button:hover { background: var(--vscode-button-hoverBackground); }
+        button.secondary { color: var(--vscode-foreground); background: var(--vscode-button-secondaryBackground); }
+        button:disabled { opacity: 0.45; cursor: default; }
+        .helper { font-size: 0.85rem; color: var(--vscode-descriptionForeground); margin: 0 0 16px; }
+        .toolbar { display: flex; gap: 8px; margin-bottom: 16px; }
+        .palette-item { padding: 12px 0; border-top: 1px solid var(--vscode-editorWidget-border); }
+        .palette-item:first-child { border-top: 0; padding-top: 0; }
+        .picker-row, .alpha-row { display: flex; align-items: center; gap: 10px; }
+        .picker-row { margin-bottom: 6px; }
+        .alpha-row { margin-left: 126px; }
+        label { width: 116px; flex: 0 0 116px; }
+        input[type="color"] { appearance: none; -webkit-appearance: none; border: none; width: 40px; height: 34px; padding: 0; background: transparent; cursor: pointer; }
+        input[type="range"] { flex: 1; min-width: 120px; }
+        .value-chip { font-family: var(--vscode-editor-font-family, monospace); font-size: 0.8rem; padding: 4px 6px; border-radius: 4px; background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-editorWidget-border); min-width: 92px; text-align: center; }
+        .row-actions { display: flex; gap: 4px; margin-left: auto; }
+        .row-actions button { min-width: 30px; padding: 5px 8px; }
+        .preview { position: sticky; bottom: 0; overflow: hidden; white-space: nowrap; padding: 16px; background: var(--vscode-editor-background); }
     </style>
 </head>
 <body>
     <h1>Token Highlight Colors</h1>
-    <p class="helper">Adjust the alternating highlight colors. Changes apply immediately.</p>
-    <div class="picker-row">
-        <label for="evenColor">Even tokens</label>
-        <input id="evenColor" type="color" value="${evenHex6}" aria-label="Even token color" />
-        <span class="value-chip" data-label="even">${normalizedEven}</span>
+    <p class="helper">Tokens cycle through this palette in order. Dragging previews locally; changes apply to the editor on release.</p>
+    <div class="toolbar">
+        <button id="addColor">Add color</button>
+        <button id="eightColorPreset" class="secondary">8-color preset</button>
+        <button id="resetPalette" class="secondary">Reset palette</button>
     </div>
-    <div class="alpha-row">
-        <label for="evenAlpha">Opacity</label>
-        <input id="evenAlpha" type="range" min="0" max="100" step="1" value="${evenAlphaPercent}" aria-label="Even token opacity" />
-        <span class="value-chip" data-alpha-label="even">${evenAlphaPercent}%</span>
-    </div>
-    <div class="picker-row">
-        <label for="oddColor">Odd tokens</label>
-        <input id="oddColor" type="color" value="${oddHex6}" aria-label="Odd token color" />
-        <span class="value-chip" data-label="odd">${normalizedOdd}</span>
-    </div>
-    <div class="alpha-row">
-        <label for="oddAlpha">Opacity</label>
-        <input id="oddAlpha" type="range" min="0" max="100" step="1" value="${oddAlphaPercent}" aria-label="Odd token opacity" />
-        <span class="value-chip" data-alpha-label="odd">${oddAlphaPercent}%</span>
-    </div>
-    <div class="preview">
-        <div class="preview-row" data-preview="even" style="background:${normalizedEven}; color: var(--vscode-editor-foreground);">
-            <span>Even token preview (${normalizedEven})</span>
-        </div>
-        <div class="preview-row" data-preview="odd" style="background:${normalizedOdd}; color: var(--vscode-editor-foreground);">
-            <span>Odd token preview (${normalizedOdd})</span>
-        </div>
-    </div>
+    <div id="palette"></div>
+    <div id="preview" class="preview"></div>
     <script nonce="${nonce}">
         const vscodeApi = acquireVsCodeApi();
-        const evenInput = document.getElementById('evenColor');
-        const oddInput = document.getElementById('oddColor');
-        const evenAlpha = document.getElementById('evenAlpha');
-        const oddAlpha = document.getElementById('oddAlpha');
-        const evenPreview = document.querySelector('[data-preview="even"]');
-        const oddPreview = document.querySelector('[data-preview="odd"]');
-        const evenLabel = document.querySelector('[data-label="even"]');
-        const oddLabel = document.querySelector('[data-label="odd"]');
-        const evenAlphaLabel = document.querySelector('[data-alpha-label="even"]');
-        const oddAlphaLabel = document.querySelector('[data-alpha-label="odd"]');
+        const paletteElement = document.getElementById('palette');
+        const previewElement = document.getElementById('preview');
+        const addColorButton = document.getElementById('addColor');
+        const eightColorPresetButton = document.getElementById('eightColorPreset');
+        const resetPaletteButton = document.getElementById('resetPalette');
+        const defaultColors = ${serializedDefaults};
+        const eightColorPreset = ${serializedEightColorPreset};
+        const previewBackground = ${serializedPreviewBackground};
+        const maxColors = ${maxHighlightColors};
+        let colors = ${serializedColors};
+        let nextAdditionalColorIndex = Math.max(0, colors.length - defaultColors.length) % eightColorPreset.length;
+        const previewTokens = ['##', ' Structure', '\\n', '-', ' pages/', ' contains', ' maintained', ' project', ' knowledge', '.'];
 
         const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
 
-        const parseRgb = (value) => {
-            const match = value.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-            if (!match) {
-                return { r: 30, g: 30, b: 30, a: 1 };
-            }
-            return {
-                r: Number(match[1]),
-                g: Number(match[2]),
-                b: Number(match[3]),
-                a: match[4] !== undefined ? Number(match[4]) : 1
-            };
-        };
-
-        const bodyBackground = parseRgb(getComputedStyle(document.body).backgroundColor);
-
         const hexToRgba = (hex) => {
             const clean = hex.replace('#', '');
-            const r = parseInt(clean.slice(0, 2), 16);
-            const g = parseInt(clean.slice(2, 4), 16);
-            const b = parseInt(clean.slice(4, 6), 16);
-            const a = clean.length === 8 ? parseInt(clean.slice(6, 8), 16) / 255 : 1;
-            return { r, g, b, a };
+            return {
+                r: parseInt(clean.slice(0, 2), 16),
+                g: parseInt(clean.slice(2, 4), 16),
+                b: parseInt(clean.slice(4, 6), 16),
+                a: clean.length === 8 ? parseInt(clean.slice(6, 8), 16) / 255 : 1
+            };
         };
 
         const blendOnBackground = (foreground) => {
             const alpha = clamp(foreground.a, 0, 1);
+            const background = hexToRgba(previewBackground);
             return {
-                r: Math.round(foreground.r * alpha + bodyBackground.r * (1 - alpha)),
-                g: Math.round(foreground.g * alpha + bodyBackground.g * (1 - alpha)),
-                b: Math.round(foreground.b * alpha + bodyBackground.b * (1 - alpha))
+                r: foreground.r * alpha + background.r * (1 - alpha),
+                g: foreground.g * alpha + background.g * (1 - alpha),
+                b: foreground.b * alpha + background.b * (1 - alpha)
             };
         };
 
         const luminance = ({ r, g, b }) => {
             const srgb = [r, g, b].map(component => {
                 const scaled = component / 255;
-                return scaled <= 0.03928 ? scaled / 12.92 : Math.pow((scaled + 0.055) / 1.055, 2.4);
+                return scaled <= 0.04045 ? scaled / 12.92 : Math.pow((scaled + 0.055) / 1.055, 2.4);
             });
             return 0.2126 * srgb[0] + 0.7152 * srgb[1] + 0.0722 * srgb[2];
         };
 
         const pickTextColor = (hex) => {
-            const fg = hexToRgba(hex);
-            const blended = blendOnBackground(fg);
-            const lum = luminance(blended);
-            return lum > 0.55 ? '#1f1f1f' : '#f5f5f5';
+            if (hex.length === 9 && parseInt(hex.slice(7), 16) === 0) {
+                return 'var(--vscode-editor-foreground)';
+            }
+            const blended = blendOnBackground(hexToRgba(hex));
+            const backgroundLuminance = luminance(blended);
+            const darkLuminance = luminance({ r: 31, g: 31, b: 31 });
+            const lightLuminance = luminance({ r: 255, g: 255, b: 255 });
+            const contrast = (first, second) => (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+            return contrast(backgroundLuminance, darkLuminance) >= contrast(backgroundLuminance, lightLuminance)
+                ? '#1F1F1F'
+                : '#FFFFFF';
         };
 
+        const toHex6 = (value) => value.slice(0, 7).toLowerCase();
+        const toAlphaPercent = (value) => value.length === 9
+            ? Math.round((parseInt(value.slice(7), 16) / 255) * 100)
+            : 100;
+
         const toAlphaHex = (percent) => {
-            const clampedPercent = clamp(Number(percent), 0, 100);
-            const alphaValue = Math.round((clampedPercent / 100) * 255);
+            const alphaValue = Math.round((clamp(Number(percent), 0, 100) / 100) * 255);
             return alphaValue >= 255 ? '' : alphaValue.toString(16).padStart(2, '0').toUpperCase();
         };
 
@@ -1686,121 +1717,139 @@ function activate(context) {
             return alphaHex ? normalizedBase + alphaHex : normalizedBase;
         };
 
-        const updateAlphaLabel = (element, percent) => {
-            if (element) {
-                element.textContent = Math.round(percent) + '%';
+        const applyPalette = () => {
+            vscodeApi.postMessage({ type: 'paletteChange', colors: colors.slice() });
+        };
+
+        const renderPreview = () => {
+            previewElement.innerHTML = previewTokens.map((token, index) => {
+                const color = colors[index % colors.length];
+                return '<span style="background:' + color + ';color:' + pickTextColor(color) + '">' + token.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
+            }).join('');
+        };
+
+        const updateColorAt = (index, baseHex, alphaPercent, row) => {
+            const color = composeColor(baseHex, alphaPercent);
+            colors[index] = color;
+            row.querySelector('[data-value]').textContent = color;
+            row.querySelector('[data-alpha-value]').textContent = Math.round(alphaPercent) + '%';
+            renderPreview();
+        };
+
+        const renderPalette = (focusRequest = null) => {
+            addColorButton.disabled = colors.length >= maxColors;
+            paletteElement.innerHTML = colors.map((color, index) => {
+                const baseHex = toHex6(color);
+                const alphaPercent = toAlphaPercent(color);
+                return '<div class="palette-item" data-index="' + index + '">' +
+                    '<div class="picker-row">' +
+                        '<label>Color ' + (index + 1) + '</label>' +
+                        '<input data-color type="color" value="' + baseHex + '" aria-label="Token color ' + (index + 1) + '" />' +
+                        '<span class="value-chip" data-value>' + color + '</span>' +
+                        '<div class="row-actions">' +
+                            '<button class="secondary" data-move-up title="Move color ' + (index + 1) + ' up" aria-label="Move color ' + (index + 1) + ' up"' + (index === 0 ? ' disabled' : '') + '>↑</button>' +
+                            '<button class="secondary" data-move-down title="Move color ' + (index + 1) + ' down" aria-label="Move color ' + (index + 1) + ' down"' + (index === colors.length - 1 ? ' disabled' : '') + '>↓</button>' +
+                            '<button class="secondary" data-remove title="Remove color ' + (index + 1) + '" aria-label="Remove color ' + (index + 1) + '"' + (colors.length === 1 ? ' disabled' : '') + '>×</button>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="alpha-row">' +
+                        '<label>Opacity</label>' +
+                        '<input data-alpha type="range" min="0" max="100" step="1" value="' + alphaPercent + '" aria-label="Token color ' + (index + 1) + ' opacity" />' +
+                        '<span class="value-chip" data-alpha-value>' + alphaPercent + '%</span>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+
+            paletteElement.querySelectorAll('.palette-item').forEach(row => {
+                const index = Number(row.dataset.index);
+                const colorInput = row.querySelector('[data-color]');
+                const alphaInput = row.querySelector('[data-alpha]');
+
+                const update = () => updateColorAt(index, colorInput.value, Number(alphaInput.value), row);
+                colorInput.addEventListener('input', update);
+                alphaInput.addEventListener('input', update);
+                colorInput.addEventListener('change', applyPalette);
+                alphaInput.addEventListener('change', applyPalette);
+
+                row.querySelector('[data-move-up]').addEventListener('click', () => {
+                    if (index === 0) return;
+                    [colors[index - 1], colors[index]] = [colors[index], colors[index - 1]];
+                    renderPalette({ index: index - 1, action: 'move-up' });
+                    applyPalette();
+                });
+
+                row.querySelector('[data-move-down]').addEventListener('click', () => {
+                    if (index >= colors.length - 1) return;
+                    [colors[index], colors[index + 1]] = [colors[index + 1], colors[index]];
+                    renderPalette({ index: index + 1, action: 'move-down' });
+                    applyPalette();
+                });
+
+                row.querySelector('[data-remove]').addEventListener('click', () => {
+                    if (colors.length === 1) return;
+                    colors.splice(index, 1);
+                    renderPalette({ index: Math.min(index, colors.length - 1), action: 'remove' });
+                    applyPalette();
+                });
+            });
+
+            renderPreview();
+
+            if (focusRequest) {
+                const focusRow = paletteElement.querySelector('.palette-item[data-index="' + focusRequest.index + '"]');
+                const preferredTarget = focusRow && focusRow.querySelector('[data-' + focusRequest.action + ']');
+                const fallbackTarget = focusRow && focusRow.querySelector('[data-color]');
+                const focusTarget = preferredTarget && !preferredTarget.disabled ? preferredTarget : fallbackTarget;
+                if (focusTarget) focusTarget.focus();
             }
         };
 
-        const applyPreview = (element, value, label) => {
-            if (!element) {
-                return;
-            }
-            element.style.background = value;
-            const textColor = pickTextColor(value.toUpperCase());
-            element.style.color = textColor;
-            const span = element.querySelector('span');
-            if (span) {
-                span.textContent = label + ' preview (' + value.toUpperCase() + ')';
-                span.style.color = textColor;
-            }
-        };
-
-        const applyLabel = (element, value) => {
-            if (element) {
-                element.textContent = value.toUpperCase();
-            }
-        };
-
-        const emitColorChange = (key, value) => {
-            vscodeApi.postMessage({ type: 'colorChange', key, value });
-        };
-
-        const updateEven = () => {
-            const percent = Number(evenAlpha.value);
-            updateAlphaLabel(evenAlphaLabel, percent);
-            const finalHex = composeColor(evenInput.value, percent);
-            applyPreview(evenPreview, finalHex, 'Even token');
-            applyLabel(evenLabel, finalHex);
-            emitColorChange('${HIGHLIGHT_EVEN_KEY}', finalHex);
-        };
-
-        const updateOdd = () => {
-            const percent = Number(oddAlpha.value);
-            updateAlphaLabel(oddAlphaLabel, percent);
-            const finalHex = composeColor(oddInput.value, percent);
-            applyPreview(oddPreview, finalHex, 'Odd token');
-            applyLabel(oddLabel, finalHex);
-            emitColorChange('${HIGHLIGHT_ODD_KEY}', finalHex);
-        };
-
-        evenInput.addEventListener('input', updateEven);
-        evenAlpha.addEventListener('input', updateEven);
-        oddInput.addEventListener('input', updateOdd);
-        oddAlpha.addEventListener('input', updateOdd);
-
-        window.addEventListener('message', (event) => {
-            const message = event.data;
-            if (message && message.type === 'colorUpdate') {
-                const applyIncomingColor = (input, alphaControl, alphaLabelEl, previewEl, labelEl, labelText) => {
-                    const upperValue = message.value.toUpperCase();
-                    const base = upperValue.slice(0, 7);
-                    const percent = upperValue.length === 9 ? Math.round((parseInt(upperValue.slice(7), 16) / 255) * 100) : 100;
-                    input.value = base.toLowerCase();
-                    alphaControl.value = percent;
-                    updateAlphaLabel(alphaLabelEl, percent);
-                    applyPreview(previewEl, upperValue, labelText);
-                    applyLabel(labelEl, upperValue);
-                };
-
-                if (message.key === '${HIGHLIGHT_EVEN_KEY}') {
-                    applyIncomingColor(evenInput, evenAlpha, evenAlphaLabel, evenPreview, evenLabel, 'Even token');
-                } else if (message.key === '${HIGHLIGHT_ODD_KEY}') {
-                    applyIncomingColor(oddInput, oddAlpha, oddAlphaLabel, oddPreview, oddLabel, 'Odd token');
-                }
-            }
+        addColorButton.addEventListener('click', () => {
+            if (colors.length >= maxColors) return;
+            colors.push(eightColorPreset[nextAdditionalColorIndex]);
+            nextAdditionalColorIndex = (nextAdditionalColorIndex + 1) % eightColorPreset.length;
+            renderPalette({ index: colors.length - 1, action: 'color' });
+            applyPalette();
         });
 
-        const initialize = () => {
-            updateAlphaLabel(evenAlphaLabel, Number(evenAlpha.value));
-            updateAlphaLabel(oddAlphaLabel, Number(oddAlpha.value));
+        eightColorPresetButton.addEventListener('click', () => {
+            colors = eightColorPreset.slice();
+            nextAdditionalColorIndex = 0;
+            renderPalette();
+            applyPalette();
+        });
 
-            const initialEvenHex = composeColor(evenInput.value, Number(evenAlpha.value));
-            const initialOddHex = composeColor(oddInput.value, Number(oddAlpha.value));
+        resetPaletteButton.addEventListener('click', () => {
+            colors = defaultColors.slice();
+            nextAdditionalColorIndex = 0;
+            renderPalette();
+            applyPalette();
+        });
 
-            applyPreview(evenPreview, initialEvenHex, 'Even token');
-            applyPreview(oddPreview, initialOddHex, 'Odd token');
-            applyLabel(evenLabel, initialEvenHex);
-            applyLabel(oddLabel, initialOddHex);
-        };
-
-        initialize();
+        renderPalette();
     </script>
 </body>
 </html>`;
         };
 
-        panel.webview.html = getHtml(evenColor, oddColor);
+        panel.webview.html = getHtml(highlightColors);
 
-        const updateColorSetting = async (key, value) => {
-            const targetKey = key === HIGHLIGHT_EVEN_KEY ? 'even' : key === HIGHLIGHT_ODD_KEY ? 'odd' : null;
-            if (!targetKey) {
+        const updatePalette = async (colors) => {
+            const nextPalette = sanitizeHighlightPalette(colors, highlightColors);
+            if (nextPalette.length === highlightColors.length && nextPalette.every((color, index) => color === highlightColors[index])) {
                 return;
             }
-
-            const hexValue = sanitizeColorSetting(value, targetKey === 'even' ? DEFAULT_EVEN_COLOR : DEFAULT_ODD_COLOR);
-            highlightColors[targetKey] = hexValue;
-            await context.globalState.update(key, hexValue);
-            loadHighlightColors(context);
-
+            highlightColors = nextPalette;
+            await context.globalState.update(HIGHLIGHT_COLORS_KEY, nextPalette);
             refreshTokenDecorations();
-            scheduleUpdateTokenCount();
-            panel.webview.postMessage({ type: 'colorUpdate', key, value: hexValue });
+            if (highlightEnabled && tokenizerState.supportsHighlight) {
+                scheduleUpdateTokenCount();
+            }
         };
 
         const messageDisposable = panel.webview.onDidReceiveMessage(async (message) => {
-            if (message.type === 'colorChange' && message.key) {
-                await updateColorSetting(message.key, message.value);
+            if (message.type === 'paletteChange' && Array.isArray(message.colors)) {
+                await updatePalette(message.colors);
             }
         });
 
@@ -1843,6 +1892,11 @@ module.exports = {
         Tokenizer: HuggingfaceTokenizer
     },
     _test: {
+        sanitizeHighlightPalette,
+        resolveHighlightPalette,
+        getHighlightColorIndex,
+        textColorForBackground,
+        getDefaultHighlightColors: () => DEFAULT_HIGHLIGHT_COLORS.slice(),
         loadEnabledFilePatterns,
         matchesEnabledFilePatterns,
         matchesFilePatterns,

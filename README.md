@@ -38,7 +38,7 @@ Click the status bar to switch between model families: GPT (OpenAI), Claude (Ant
 - **HuggingFace:** Loads a `tokenizer.json` from the Hub (or a local file) and reuses it for live counts. Byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.) support highlighting; SentencePiece tokenizers that alter whitespace fall back to counting only.
 
 ### Visual Token Highlighting
-See your tokens in real-time with alternating color bands that show exactly where each token begins and ends. Available for GPT, Claude, and HuggingFace byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.).
+See your tokens in real-time with rotating color bands that show exactly where each token begins and ends. Available for GPT, Claude, and HuggingFace byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.).
 
 <div align="center">
     <img src="images/highlight_on_off.gif" alt="Token highlighting toggle" width="800">
@@ -46,22 +46,25 @@ See your tokens in real-time with alternating color bands that show exactly wher
 
 **Key features:**
 - **Toggle on/off:** Click the palette icon in the status bar to enable or disable highlighting.
-- **Smart text contrast:** Foreground text color automatically adapts to your highlight colors for readability.
+- **Smart text contrast:** Opaque highlights choose a readable foreground automatically; translucent highlights preserve the editor's existing text colors.
 - **Customizable colors:** Choose your own colors with alpha/transparency support.
 - **Editor-aware:** Only highlights in text editors; Output and Debug panes remain clean.
 
 ### Customizable Highlight Colors
-Open the **Command Palette** and run `Configure Token Highlight Colors` to access a dedicated color configurator.
+Open the **Command Palette** and run `Configure Token Highlight Colors` to customize the rotating token color palette.
 
 <div align="center">
     <img src="images/highlight_config.gif" alt="Token highlight configurator" width="800">
 </div>
 
 **Features:**
-- Separate color pickers for even/odd token bands
-- Hex color input with opacity sliders
-- Live preview showing exactly how colors will look
-- Smart contrast preview so you can ensure text remains readable
+- Add, remove, and reorder palette colors
+- Apply the 8-color preset
+- Color pickers with opacity sliders
+- Live token-style preview of the full palette cycle
+- Dragging color and opacity controls previews locally; changes apply to editor highlighting on release
+- The existing two-color palette remains the default; the 8-color palette is available as an opt-in preset
+- Reset to the default two-color palette at any time
 
 ### Customizable Status Bar Display
 Personalize how token information appears in your status bar using template placeholders.
@@ -88,7 +91,7 @@ This extension provides the following commands (accessible via Command Palette):
 
 - **`Toggle Token Highlighting`**: Enable or disable visual token highlighting overlays. Also accessible by clicking the palette icon in the status bar.
 
-- **`Configure Token Highlight Colors`**: Open an interactive color configurator to customize the highlight colors for even and odd token bands. Includes live preview and smart text contrast.
+- **`Configure Token Highlight Colors`**: Open an interactive palette editor to add, remove, reorder, and customize up to 8 token highlight colors with a live preview.
 
 - **`Count Tokens`**: Manually trigger token counting for the current document or selection.
 
@@ -124,7 +127,7 @@ Select `HuggingFace (huggingface)` in the model family picker, then point the ex
 - **Missing repositories / offline first-load** show the same error notification and fall back to a rough `~4 chars/token` approximation until the tokenizer resolves.
 
 ### Highlighting Configuration
-Token highlight colors are stored in your VS Code global state (synced across devices if you have Settings Sync enabled). To customize them select `Configure Token Highlight Colors` option from the Command Palette.
+Token highlight colors are stored as an ordered palette in your VS Code global state (synced across devices if you have Settings Sync enabled). Tokens cycle through the palette in order. To customize it, select `Configure Token Highlight Colors` from the Command Palette.
 
 **Quick toggle:** Click the palette icon in the status bar to enable/disable token highlighting instantly.
 

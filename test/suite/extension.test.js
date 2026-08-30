@@ -83,6 +83,60 @@ suite('Extension Test Suite', () => {
 	});
 });
 
+suite('Highlight Palette', () => {
+	const {
+		sanitizeHighlightPalette,
+		resolveHighlightPalette,
+		getHighlightColorIndex,
+		textColorForBackground,
+		getDefaultHighlightColors
+	} = extension._test;
+
+	test('default palette remains the original two colors', () => {
+		const colors = getDefaultHighlightColors();
+		assert.deepStrictEqual(colors, ['#B8D4FF', '#FFE0A6']);
+	});
+
+	test('sanitizeHighlightPalette normalizes valid colors and drops invalid entries', () => {
+		assert.deepStrictEqual(
+			sanitizeHighlightPalette([' #abcdef ', 'nope', '#12345678', null], []),
+			['#ABCDEF', '#12345678']
+		);
+	});
+
+	test('sanitizeHighlightPalette limits palettes to 8 colors', () => {
+		const colors = Array.from({ length: 20 }, (_, index) => `#${index.toString(16).padStart(6, '0')}`);
+		assert.deepStrictEqual(sanitizeHighlightPalette(colors, []), colors.slice(0, 8).map(color => color.toUpperCase()));
+	});
+
+	test('resolveHighlightPalette prefers a saved multi-color palette', () => {
+		assert.deepStrictEqual(
+			resolveHighlightPalette(['#112233', '#445566', '#778899'], '#AAAAAA', '#BBBBBB'),
+			['#112233', '#445566', '#778899']
+		);
+	});
+
+	test('resolveHighlightPalette migrates legacy even and odd colors', () => {
+		assert.deepStrictEqual(
+			resolveHighlightPalette(undefined, '#abcdef', '#12345678'),
+			['#ABCDEF', '#12345678']
+		);
+	});
+
+	test('highlight color index cycles through the full palette', () => {
+		assert.deepStrictEqual(
+			Array.from({ length: 10 }, (_, index) => getHighlightColorIndex(index, 4)),
+			[0, 1, 2, 3, 0, 1, 2, 3, 0, 1]
+		);
+	});
+
+	test('transparent highlights choose text from the composited visible background', () => {
+		assert.strictEqual(textColorForBackground('#FFE0A6FC', '#FFFFFF'), '#1F1F1F');
+		assert.strictEqual(textColorForBackground('#FFFFFF33', '#1E1E1E'), '#FFFFFF');
+	});
+
+});
+
 suite('File Pattern Matching', () => {
 	const {
 		matchesFilePatterns,
