@@ -2,7 +2,7 @@
   "name": "gpt-token-counter-live",
   "displayName": "Live LLM Token Counter",
   "description": "Live token counts and token-boundary highlighting for GPT, Claude, Gemini, and HuggingFace tokenizers.",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"

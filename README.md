@@ -1,8 +1,8 @@
 <div align="center">
     <h1>Live LLM Token Counter</h1>
     <img src="images/icon.png" alt="Live LLM Token Counter logo" width="300" height="300"><br>
-    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.6.0-blue?style=flat&logo=visualstudiocode" alt="VS Code Marketplace version"></a>
-    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="Open VSX version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.6.0%20-%20%23bb3ec2?style=flat"></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.6.1-blue?style=flat&logo=visualstudiocode" alt="VS Code Marketplace version"></a>
+    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="Open VSX version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.6.1%20-%20%23bb3ec2?style=flat"></a>
     <br><br>
 </div>
 
@@ -11,12 +11,6 @@ Live LLM Token Counter is a Visual Studio Code extension for prompt writers, AI 
 The extension identifier and settings namespace are `gpt-token-counter-live` so existing users keep their installs and settings.
 
 Tokenizer support is provided by [tiktoken](https://www.npmjs.com/package/tiktoken) for GPT/OpenAI models, [Anthropic's tokenizer](https://github.com/anthropics/anthropic-tokenizer-typescript) for Claude, a local Gemini approximation, and [@huggingface/tokenizers](https://www.npmjs.com/package/@huggingface/tokenizers) for HuggingFace `tokenizer.json` files such as Qwen, Llama, and Mistral.
-
-**NEW in v1.6.0:** Build a token highlight palette with up to eight colors, reorder colors, preview changes live, or apply an opt-in 8-color preset. Existing users keep the original efficient two-color default.
-
-**NEW in v1.5.2:** Restored the original handmade logo and visible extension name while keeping the corrected project support link and clearer listing copy.
-
-**NEW in v1.5.0:** Count and highlight tokens for **any HuggingFace tokenizer** (Qwen, Llama, Mistral, and more), loaded from the Hub or a local `tokenizer.json`. Plus **file pattern filtering** to scope the counter to specific file types.
 
 <div align="center">
     <img src="images/hero.gif" alt="Live LLM Token Counter in action" width="800">
@@ -77,25 +71,26 @@ Personalize how token information appears in your status bar using template plac
 
 **Supported placeholders:**
 - `{count}` - Token count
-- `{family}` or `{model}` - Model family name (GPT, Claude, Gemini)
-- `{provider}` - Provider name (openai, anthropic, gemini)
+- `{family}` or `{model}` - Model family name (GPT, Claude, Gemini, HuggingFace)
+- `{provider}` - Provider name (`openai`, `anthropic`, `gemini`, `huggingface`)
 
 ## Requirements
 
-- Visual Studio Code: The extension is developed for VS Code and will not work with other editors.
-    - It is also hosted on the [Open VSX Registry](https://open-vsx.org/extension/bedirt/gpt-token-counter-live).
+- Visual Studio Code `1.82.0` or newer, or a compatible editor that installs extensions from the [Open VSX Registry](https://open-vsx.org/extension/bedirt/gpt-token-counter-live).
 
 ## Commands
 
 This extension provides the following commands (accessible via Command Palette):
 
-- **`Change Model Family`**: Switch between GPT (OpenAI), Claude (Anthropic), and Gemini (Google AI) tokenizers. Also accessible by clicking the token count in the status bar.
+- **`Change Model Family`**: Switch between GPT (OpenAI), Claude (Anthropic), Gemini (Google AI), and HuggingFace tokenizers. Also accessible by clicking the token count in the status bar.
 
 - **`Toggle Token Highlighting`**: Enable or disable visual token highlighting overlays. Also accessible by clicking the palette icon in the status bar.
 
 - **`Configure Token Highlight Colors`**: Open an interactive palette editor to add, remove, reorder, and customize up to 8 token highlight colors with a live preview.
 
 - **`Count Tokens`**: Manually trigger token counting for the current document or selection.
+
+- **`Refresh HuggingFace Tokenizer Cache`**: Clear and reload the configured HuggingFace tokenizer cache.
 
 ## Extension Settings
 
@@ -139,105 +134,4 @@ There are currently no known issues. If you encounter a problem, please report i
 
 ## Release Notes
 
-### 1.6.0 - Multi-Color Token Highlight Palettes
-
-**New features:**
-
-- Build an ordered palette with up to eight token highlight colors.
-- Add, remove, and reorder colors with keyboard focus preserved after each action.
-- Apply an opt-in 8-color preset or reset to the original two-color palette.
-- Preview color and opacity changes live, then apply them to the editor when the control is released.
-
-**Improvements:**
-
-- Existing users retain the efficient two-color default and legacy color settings migrate automatically.
-- Malformed or oversized saved palettes are repaired to a valid, bounded value.
-- Foreground contrast accounts for highlight transparency and the active editor theme.
-
-### 1.5.2 - Restore Original Branding & Fix Marketplace Metadata
-
-**Changed:**
-
-- Restored the original handmade icon and visible extension name.
-- Updated support metadata to the project's own issue tracker.
-- Rewrote the listing introduction to better describe local token counting, token highlighting, HuggingFace tokenizer loading, and file filters.
-
-### 1.5.1
-
-Superseded by 1.5.2.
-
-### 1.5.0 - HuggingFace Tokenizers & File Pattern Filtering
-
-**New features:**
-
-- **HuggingFace tokenizer family**: load any `tokenizer.json` from the Hub (first launch fetches + caches) or a local file. Byte-level BPE tokenizers (Qwen, Llama, Mistral, etc.) support highlighting; SentencePiece tokenizers that transform whitespace count tokens but skip highlights. Configure via `huggingfaceModelId` or `huggingfaceTokenizerPath`.
-- **New setting `enabledFilePatterns`**: Show status bar only for files matching specific glob patterns (e.g., `["*.md", "*.mdc"]`). Empty array shows for all files.
-
-**Fixes:**
-
-- Token highlighting stays aligned around multi-byte UTF-8 characters (emoji, CJK). The renderer now matches raw bytes against the source instead of decoded token strings, so a token that splits a multi-byte character still lands on the right boundary.
-- Claude highlighting works on documents containing characters that NFKC-normalize to a different form (e.g., full-width `（）` becoming ASCII `()`). Token ranges are reprojected from the normalized tokenization back onto the original text.
-
-### 1.4.0 - Token Highlighting & Customization
-
-**Major new features:**
-
-- **Visual Token Highlighting**: See exactly where each token begins and ends with alternating color bands overlaid on your text
-  - Available for GPT (OpenAI) and Claude (Anthropic) tokenizers
-  - Smart text contrast automatically adjusts foreground color for readability
-  - Editor-aware: only applies to text editors, keeps Output/Debug panes clean
-
-- **Interactive Color Configurator**: New command `Configure Token Highlight Colors` with:
-  - Separate color pickers for even and odd token bands
-  - Hex color input with opacity sliders for full alpha support
-  - Real-time preview showing exactly how colors will appear
-  - Smart contrast preview ensures text remains readable
-
-- **Status Bar Palette Toggle**: Quick access toggle button in status bar
-  - Click to instantly enable/disable token highlighting
-  - Visual states: Active (on), Inactive (off), Unavailable (for unsupported models)
-
-- **New Configuration Settings**:
-  - `defaultModelFamily`: Choose which model family (GPT, Claude, or Gemini) activates by default
-  - `statusBarDisplayTemplate`: Customize status bar text with template placeholders like `{count}`, `{family}`, `{provider}`
-
-**Technical improvements:**
-- Better Unicode normalization handling for Claude tokenizer (NFKC)
-- Performance optimizations for real-time highlighting
-- Improved error handling and user feedback
-
-### 1.3.0
-- Switch to model families in the UI: GPT, Claude, Gemini.
-- Add Gemini token counting (approximate: `o200k_base`/`cl100k_base`, fallback ~4 chars/token).
-- GPT tokenizer now uses `encoding_for_model('gpt-5')` with graceful fallbacks.
-- Updated `tiktoken` to 1.0.22.
-
-### 1.2.3
-- Added support for new OpenAI models: o3-mini, o1, o1-mini, gpt-4o-mini
-- Updated to tiktoken 1.0.20
-- Updated Claude models to only include Claude-3.5, Claude-3.7
-- Removed older models: text-davinci-003, davinci, babbage
-- Removed Claude-2 and Claude-3
-
-### 1.2.1
-
-- Moved from `gpt-tokenizer` to `tiktoken` package.
-- Fixed the special tokens issue.
-
-### 1.2.0
-
-- Modified the code to increase security.
-- Added support for GPT-4o tokenizer.
-- Removed unused models from the tokenizer list.
-- Added Claude-3 as option using approximate token count.
-
-### 1.1.0
-
-- Added support for Claude tokenizer.
-
-### 1.0.0
-
-- Initial release of gpt-token-counter-live.
-- Provides a token count in the status bar for the selected text or the entire document.
-- Automatically updates the token count as text is edited or selected.
-- Allows the user to select the model to use for token counting.
+See [CHANGELOG.md](CHANGELOG.md) for the complete version history and release details.

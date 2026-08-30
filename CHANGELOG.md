@@ -2,6 +2,15 @@
 
 All notable changes to the "gpt-token-counter" extension will be documented in this file.
 
+## [1.6.1]
+
+### Changed
+- Refreshed the Marketplace README into an evergreen product overview instead of stacking old release announcements.
+- Kept detailed release history in this changelog rather than duplicating it in the README.
+- Corrected the documented model-family placeholders, supported editors, and HuggingFace cache refresh command.
+
+There are no runtime changes from 1.6.0.
+
 ## [1.6.0]
 
 ### Added
