@@ -1,8 +1,8 @@
 <div align="center">
     <h1>Live LLM Token Counter</h1>
     <img src="images/icon.png" alt="Live LLM Token Counter logo" width="300" height="300"><br>
-    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.5.2-blue?style=flat&logo=visualstudiocode" alt="VS Code Marketplace version"></a>
-    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="Open VSX version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.5.2%20-%20%23bb3ec2?style=flat"></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.6.0-blue?style=flat&logo=visualstudiocode" alt="VS Code Marketplace version"></a>
+    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="Open VSX version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.6.0%20-%20%23bb3ec2?style=flat"></a>
     <br><br>
 </div>
 
@@ -11,6 +11,8 @@ Live LLM Token Counter is a Visual Studio Code extension for prompt writers, AI 
 The extension identifier and settings namespace are `gpt-token-counter-live` so existing users keep their installs and settings.
 
 Tokenizer support is provided by [tiktoken](https://www.npmjs.com/package/tiktoken) for GPT/OpenAI models, [Anthropic's tokenizer](https://github.com/anthropics/anthropic-tokenizer-typescript) for Claude, a local Gemini approximation, and [@huggingface/tokenizers](https://www.npmjs.com/package/@huggingface/tokenizers) for HuggingFace `tokenizer.json` files such as Qwen, Llama, and Mistral.
+
+**NEW in v1.6.0:** Build a token highlight palette with up to eight colors, reorder colors, preview changes live, or apply an opt-in 8-color preset. Existing users keep the original efficient two-color default.
 
 **NEW in v1.5.2:** Restored the original handmade logo and visible extension name while keeping the corrected project support link and clearer listing copy.
 
@@ -46,7 +48,7 @@ See your tokens in real-time with rotating color bands that show exactly where e
 
 **Key features:**
 - **Toggle on/off:** Click the palette icon in the status bar to enable or disable highlighting.
-- **Smart text contrast:** Opaque highlights choose a readable foreground automatically; translucent highlights preserve the editor's existing text colors.
+- **Smart text contrast:** Highlight text automatically adapts to the visible color against the active editor theme; fully transparent highlights preserve the editor's existing text colors.
 - **Customizable colors:** Choose your own colors with alpha/transparency support.
 - **Editor-aware:** Only highlights in text editors; Output and Debug panes remain clean.
 
@@ -136,6 +138,21 @@ Token highlight colors are stored as an ordered palette in your VS Code global s
 There are currently no known issues. If you encounter a problem, please report it on the [issue tracker](https://github.com/BedirT/LLM-Token-Counter-VSCode/issues).
 
 ## Release Notes
+
+### 1.6.0 - Multi-Color Token Highlight Palettes
+
+**New features:**
+
+- Build an ordered palette with up to eight token highlight colors.
+- Add, remove, and reorder colors with keyboard focus preserved after each action.
+- Apply an opt-in 8-color preset or reset to the original two-color palette.
+- Preview color and opacity changes live, then apply them to the editor when the control is released.
+
+**Improvements:**
+
+- Existing users retain the efficient two-color default and legacy color settings migrate automatically.
+- Malformed or oversized saved palettes are repaired to a valid, bounded value.
+- Foreground contrast accounts for highlight transparency and the active editor theme.
 
 ### 1.5.2 - Restore Original Branding & Fix Marketplace Metadata
 

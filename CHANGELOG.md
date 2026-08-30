@@ -2,6 +2,23 @@
 
 All notable changes to the "gpt-token-counter" extension will be documented in this file.
 
+## [1.6.0]
+
+### Added
+- Ordered token highlight palettes with up to eight colors.
+- Add, remove, and reorder controls in the highlight configurator.
+- An opt-in 8-color preset alongside the original two-color default.
+- Live local previews while dragging color and opacity controls.
+
+### Changed
+- Editor highlighting updates only when a color or opacity control is released, avoiding repeated retokenization while dragging.
+- Highlight foreground contrast now accounts for transparency and the active editor theme.
+- Palette actions include accessible labels and preserve keyboard focus after reordering or removal.
+
+### Fixed
+- Invalid, normalized, or oversized saved palettes are repaired and persisted automatically.
+- Legacy even and odd highlight colors migrate into the ordered palette format.
+
 ## [1.5.2]
 
 ### Changed
