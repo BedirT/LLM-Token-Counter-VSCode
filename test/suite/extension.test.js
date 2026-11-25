@@ -6,6 +6,40 @@ const vscode = require('vscode');
 
 const extension = require('../../src/extension');
 
+suite('Count Tokens command', () => {
+	test('counts the whole document or the active selection', async () => {
+		const command = 'gpt-token-counter-live.countTokens';
+		const document = await vscode.workspace.openTextDocument({ content: 'hello world' });
+		const editor = await vscode.window.showTextDocument(document);
+		try {
+			assert.strictEqual(await vscode.commands.executeCommand(command), 2);
+			editor.selection = new vscode.Selection(0, 0, 0, 5);
+			assert.strictEqual(await vscode.commands.executeCommand(command), 1);
+		} finally {
+			await vscode.commands.executeCommand('workbench.action.revertAndCloseActiveEditor');
+		}
+	});
+});
+
+suite('Status bar template', () => {
+	const { applyStatusBarTemplate } = extension._test;
+
+	test('formats only the opt-in grouped placeholder', () => {
+		const data = { count: 123456, family: 'GPT', provider: 'openai' };
+		const formatter = new Intl.NumberFormat(vscode.env.language);
+		assert.strictEqual(
+			applyStatusBarTemplate('{countFormatted} / {count} / {countFormatted}', data),
+			`${formatter.format(data.count)} / 123456 / ${formatter.format(data.count)}`
+		);
+		assert.strictEqual(applyStatusBarTemplate('', data), 'Token Count: 123456 (GPT)');
+		assert.strictEqual(
+			applyStatusBarTemplate('{label} {family} {model} {provider} {unknown}', data),
+			'Token Count GPT GPT openai {unknown}'
+		);
+		assert.strictEqual(applyStatusBarTemplate('{countFormatted} / {count}', { count: 0 }), `${formatter.format(0)} / 0`);
+	});
+});
+
 suite('Extension Test Suite', () => {
 	vscode.window.showInformationMessage('Start all tests.');
 

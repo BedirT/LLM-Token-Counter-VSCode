@@ -28,6 +28,8 @@ const EIGHT_COLOR_PRESET = [
     '#6E7846'
 ];
 const DEFAULT_STATUS_TEMPLATE = 'Token Count: {count} ({family})';
+const DEFAULT_STATUS_PRIORITY = 100;
+const tokenCountFormatter = new Intl.NumberFormat(vscode.env.language);
 
 const MODEL_FAMILIES = {
     'openai': 'GPT',
@@ -333,7 +335,6 @@ function resolveOriginalOffsetFromNormalized(offsetMap, normalizedOffset, direct
 
 let highlightColors = DEFAULT_HIGHLIGHT_COLORS.slice();
 
-let statusBarTemplate = DEFAULT_STATUS_TEMPLATE;
 let enabledFilePatterns = [];
 
 function loadHighlightColors(context) {
@@ -370,11 +371,6 @@ function loadHighlightColors(context) {
     if (needsPaletteRepair || needsLegacyMigration) {
         void context.globalState.update(HIGHLIGHT_COLORS_KEY, highlightColors);
     }
-}
-
-function loadStatusBarConfig() {
-    const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
-    statusBarTemplate = sanitizeTemplateSetting(config.get('statusBarDisplayTemplate'), DEFAULT_STATUS_TEMPLATE);
 }
 
 function normalizeEnabledFilePatterns(patterns) {
@@ -434,6 +430,9 @@ function applyStatusBarTemplate(template, data) {
 
     const replacements = {
         count: toText(data.count),
+        get countFormatted() {
+            return typeof data.count === 'number' ? tokenCountFormatter.format(data.count) : '';
+        },
         family: toText(data.family),
         provider: toText(data.provider),
         model: toText(data.family),
@@ -441,9 +440,7 @@ function applyStatusBarTemplate(template, data) {
     };
 
     const baseTemplate = template || DEFAULT_STATUS_TEMPLATE;
-    return baseTemplate.replace(/\{(count|family|provider|model|label)\}/g, (_match, key) => {
-        return replacements[key] !== undefined ? replacements[key] : '';
-    });
+    return baseTemplate.replace(/\{(count|countFormatted|family|provider|model|label)\}/g, (_match, key) => replacements[key]);
 }
 
 function createTokenDecorationTypes() {
@@ -725,21 +722,40 @@ function activate(context) {
     }
 
     loadHighlightColors(context);
-    loadStatusBarConfig();
     loadEnabledFilePatterns();
 
-    const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBar.command = 'gpt-token-counter-live.changeModel';
-    statusBar.name = 'LLM Token Counter';
+    let statusBar;
+    let highlightStatusBar;
+    let statusBarTemplate;
+    let showHighlightButton;
 
-    const highlightStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 99);
-    highlightStatusBar.command = 'gpt-token-counter-live.toggleHighlight';
-    highlightStatusBar.name = 'Token Highlight Toggle';
-    highlightStatusBar.accessibilityInformation = {
-        label: 'Toggle token highlighting',
-        role: 'button'
-    };
-    highlightStatusBar.text = '$(symbol-color)';
+    function loadStatusBarConfig() {
+        const config = vscode.workspace.getConfiguration(CONFIG_SECTION);
+        statusBarTemplate = sanitizeTemplateSetting(config.get('statusBarDisplayTemplate'), DEFAULT_STATUS_TEMPLATE);
+        showHighlightButton = config.get('showHighlightButton') !== false;
+        const alignment = config.get('statusBarAlignment') === 'left'
+            ? vscode.StatusBarAlignment.Left : vscode.StatusBarAlignment.Right;
+        const configuredPriority = config.get('statusBarPriority');
+        const priority = Number.isSafeInteger(configuredPriority) ? configuredPriority : DEFAULT_STATUS_PRIORITY;
+        if (statusBar && statusBar.alignment === alignment && statusBar.priority === priority) {
+            return;
+        }
+
+        // Alignment and priority are immutable on an existing status bar item.
+        if (statusBar) {
+            statusBar.dispose();
+            highlightStatusBar.dispose();
+        }
+        statusBar = vscode.window.createStatusBarItem(alignment, priority);
+        statusBar.command = 'gpt-token-counter-live.changeModel';
+        statusBar.name = 'LLM Token Counter';
+        highlightStatusBar = vscode.window.createStatusBarItem(alignment, priority - 1);
+        highlightStatusBar.command = 'gpt-token-counter-live.toggleHighlight';
+        highlightStatusBar.name = 'Token Highlight Toggle';
+        highlightStatusBar.accessibilityInformation = { label: 'Toggle token highlighting', role: 'button' };
+    }
+
+    loadStatusBarConfig();
 
     let tokenDecorations = createTokenDecorationTypes();
     let currentProvider = getDefaultProviderFromConfig();
@@ -750,10 +766,10 @@ function activate(context) {
     let lastHfHighlightWarnKey = null;
 
     context.subscriptions.push(
-        statusBar,
-        highlightStatusBar,
         {
             dispose: () => {
+                statusBar.dispose();
+                highlightStatusBar.dispose();
                 if (tokenDecorations) {
                     tokenDecorations.forEach(decoration => decoration.dispose());
                 }
@@ -897,7 +913,7 @@ function activate(context) {
 
     function updateHighlightStatusBar() {
         const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor || !isHighlightableEditor(activeEditor) || !matchesEnabledFilePatterns(activeEditor)) {
+        if (!showHighlightButton || !isHighlightableEditor(activeEditor) || !matchesEnabledFilePatterns(activeEditor)) {
             highlightStatusBar.hide();
             return;
         }
@@ -908,8 +924,6 @@ function activate(context) {
         const inactiveBackground = new vscode.ThemeColor('statusBarItem.inactiveBackground');
         const defaultForeground = new vscode.ThemeColor('statusBarItem.foreground');
         const defaultBackground = new vscode.ThemeColor('statusBarItem.background');
-        const unavailableForeground = new vscode.ThemeColor('statusBarItem.errorForeground');
-        const unavailableBackground = new vscode.ThemeColor('statusBarItem.errorBackground');
 
         const applyAppearance = (text, tooltip, foreground, background, fallbackForeground, fallbackBackground) => {
             highlightStatusBar.text = text;
@@ -922,10 +936,10 @@ function activate(context) {
             applyAppearance(
                 '$(circle-slash)',
                 'Token highlighting is unavailable for this model family.',
-                unavailableForeground,
-                unavailableBackground,
+                inactiveForeground,
+                undefined,
                 defaultForeground,
-                defaultBackground
+                undefined
             );
         } else if (highlightEnabled) {
             applyAppearance(
@@ -1404,7 +1418,8 @@ function activate(context) {
     }, null, context.subscriptions);
 
     vscode.workspace.onDidChangeConfiguration(event => {
-        if (event.affectsConfiguration(`${CONFIG_SECTION}.statusBarDisplayTemplate`)) {
+        if (['statusBarDisplayTemplate', 'showHighlightButton', 'statusBarAlignment', 'statusBarPriority']
+            .some(key => event.affectsConfiguration(`${CONFIG_SECTION}.${key}`))) {
             loadStatusBarConfig();
             scheduleUpdateTokenCount();
         }
@@ -1450,6 +1465,24 @@ function activate(context) {
             scheduleUpdateTokenCount();
         }
     }, null, context.subscriptions);
+
+    context.subscriptions.push(vscode.commands.registerCommand('gpt-token-counter-live.countTokens', () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            void vscode.window.showInformationMessage('Open a text editor to count tokens.');
+            return;
+        }
+
+        const { document, selection } = editor;
+        const text = selection.isEmpty ? document.getText() : document.getText(selection);
+        const { tokenCount, tokenizationResult } = computeTokenization(text);
+        const scope = selection.isEmpty ? 'document' : 'selection';
+        const label = currentProvider === 'gemini' || !tokenizationResult ? 'Estimated token count' : 'Token count';
+        void vscode.window.showInformationMessage(
+            `${label} for ${scope}: ${tokenCountFormatter.format(tokenCount)} (${currentFamilyName}).`
+        );
+        return tokenCount;
+    }));
 
     let disposable = vscode.commands.registerCommand('gpt-token-counter-live.changeModel', async function () {
         const providerDetail = (provider) => {
@@ -1533,12 +1566,8 @@ function activate(context) {
                 vscode.window.showInformationMessage('Token highlighting is only available for GPT, Claude, and HuggingFace tokenizers.');
             }
             highlightEnabled = false;
-        } else if (nextState) {
-            highlightEnabled = true;
-            vscode.window.showInformationMessage('Token highlighting enabled.');
         } else {
-            highlightEnabled = false;
-            vscode.window.showInformationMessage('Token highlighting disabled.');
+            highlightEnabled = nextState;
         }
 
         if (!highlightEnabled) {
@@ -1892,6 +1921,7 @@ module.exports = {
         Tokenizer: HuggingfaceTokenizer
     },
     _test: {
+        applyStatusBarTemplate,
         sanitizeHighlightPalette,
         resolveHighlightPalette,
         getHighlightColorIndex,
