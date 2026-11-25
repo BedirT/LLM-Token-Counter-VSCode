@@ -1,8 +1,8 @@
 <div align="center">
     <h1>Live LLM Token Counter</h1>
     <img src="images/icon.png" alt="Live LLM Token Counter logo" width="300" height="300"><br>
-    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.6.1-blue?style=flat&logo=visualstudiocode" alt="VS Code Marketplace version"></a>
-    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="Open VSX version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.6.1%20-%20%23bb3ec2?style=flat"></a>
+    <a href="https://marketplace.visualstudio.com/items?itemName=bedirt.gpt-token-counter-live"><img src="https://img.shields.io/badge/VSCode-v1.7.0-blue?style=flat&logo=visualstudiocode" alt="VS Code Marketplace version"></a>
+    <a href="https://open-vsx.org/extension/bedirt/gpt-token-counter-live"><img alt="Open VSX version" src="https://img.shields.io/badge/OpenVSX%20-%20v1.7.0%20-%20%23bb3ec2?style=flat"></a>
     <br><br>
 </div>
 
@@ -70,7 +70,9 @@ Personalize how token information appears in your status bar using template plac
 </div>
 
 **Supported placeholders:**
-- `{count}` - Token count
+- `{count}` - Ungrouped token count (e.g. `123456`)
+- `{countFormatted}` - Token count grouped according to the VS Code display language (e.g. `123,456` in English)
+- `{label}` - The label `Token Count`
 - `{family}` or `{model}` - Model family name (GPT, Claude, Gemini, HuggingFace)
 - `{provider}` - Provider name (`openai`, `anthropic`, `gemini`, `huggingface`)
 
@@ -88,7 +90,7 @@ This extension provides the following commands (accessible via Command Palette):
 
 - **`Configure Token Highlight Colors`**: Open an interactive palette editor to add, remove, reorder, and customize up to 8 token highlight colors with a live preview.
 
-- **`Count Tokens`**: Manually trigger token counting for the current document or selection.
+- **`Count Tokens`**: Show a notification with the count for the active selection or whole document, even when file patterns hide the live counter.
 
 - **`Refresh HuggingFace Tokenizer Cache`**: Clear and reload the configured HuggingFace tokenizer cache.
 
@@ -103,7 +105,11 @@ This extension contributes the following settings:
 
 - **`gpt-token-counter-live.statusBarDisplayTemplate`**: Customize how token information appears in the status bar.
   - Default: `Token Count: {count} ({family})`
-  - Supported placeholders: `{count}`, `{family}`, `{model}` (alias for family), `{provider}`
+  - Example with grouping: `{countFormatted} tokens ({family})`
+
+- **`gpt-token-counter-live.showHighlightButton`**: Show the highlight toggle in the status bar (default: `true`). The Command Palette toggle works even when the button is hidden.
+- **`gpt-token-counter-live.statusBarAlignment`**: Put both items on the `left` or `right` (default) side.
+- **`gpt-token-counter-live.statusBarPriority`**: Set their relative position on that side (default: `100`). Higher values move the items farther left; exact position depends on other status bar items.
 
 - **`gpt-token-counter-live.enabledFilePatterns`**: Glob patterns for files where the status bar should be shown.
   - Default: `[]` (empty array shows for all files)

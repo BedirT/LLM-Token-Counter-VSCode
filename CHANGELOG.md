@@ -2,6 +2,13 @@
 
 All notable changes to the "gpt-token-counter" extension will be documented in this file.
 
+## [1.7.0]
+
+- Added settings to hide the highlight button and adjust status bar alignment and priority.
+- Added the locale-aware `{countFormatted}` placeholder; `{count}` remains unchanged.
+- Removed routine highlight toggle notifications and made the unavailable status bar indicator neutral.
+- Restored the **Count Tokens** command for the current selection or document.
+
 ## [1.6.1]
 
 ### Changed

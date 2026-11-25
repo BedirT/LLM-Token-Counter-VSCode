@@ -2,7 +2,7 @@
   "name": "gpt-token-counter-live",
   "displayName": "Live LLM Token Counter",
   "description": "Live token counts and token-boundary highlighting for GPT, Claude, Gemini, and HuggingFace tokenizers.",
-  "version": "1.6.1",
+  "version": "1.7.0",
   "publisher": "bedirt",
   "author": {
     "name": "BedirT"
@@ -101,7 +101,23 @@
         "gpt-token-counter-live.statusBarDisplayTemplate": {
           "type": "string",
           "default": "Token Count: {count} ({family})",
-          "markdownDescription": "Template used for the status bar text. Supported placeholders: `{count}`, `{family}`, `{provider}` (alias `{model}` for family)."
+          "markdownDescription": "Template used for the status bar text. Supported placeholders: `{count}` (ungrouped), `{countFormatted}` (grouped using the VS Code display language), `{family}`, `{provider}`, `{label}`. `{model}` is an alias for `{family}`."
+        },
+        "gpt-token-counter-live.showHighlightButton": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the Token Highlight Toggle in the status bar. Hiding it does not turn off highlighting or remove the Command Palette command."
+        },
+        "gpt-token-counter-live.statusBarAlignment": {
+          "type": "string",
+          "enum": ["left", "right"],
+          "default": "right",
+          "description": "Which side of the status bar to place the token counter and highlight button on."
+        },
+        "gpt-token-counter-live.statusBarPriority": {
+          "type": "integer",
+          "default": 100,
+          "description": "Relative placement of the token counter on its chosen side. Higher numbers move it farther left. The highlight button uses one less than this value."
         },
         "gpt-token-counter-live.enabledFilePatterns": {
           "type": "array",
